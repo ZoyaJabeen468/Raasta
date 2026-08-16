@@ -1,40 +1,64 @@
 # RAASTA
 
-AI-powered real-time road hazard detection for Pakistani roads.
+AI-powered real-time road hazard awareness for drivers in Pakistan.
 
-**Project path:** `E:\Android\projects\raasta_app`  
-(C: was almost full — project + build caches live on E:)
+Flutter app + on-device YOLOv8 (TFLite) for road damage, pedestrians, and animals, with GPS speed HUD, voice alerts (English/Urdu), and local trip insights.
 
-## Current status
+## Team
 
-- App: Module 1 + GPS drive HUD (see `lib/`)
-- ML: YOLO training for M2+M5 lives in `ml/` — **use Google Colab** (no local NVIDIA GPU)
+| Member | Focus |
+|--------|--------|
+| **Zoya** | M2+M5 detection model, M6 wrong-way, M7 insights |
+| **Amna** | M3 traffic signs + OCR, M4 sign-based speed limits |
 
-```text
-ml/README.md                      ← start here
-ml/colab/RAASTA_YOLOv8_M2_M5.ipynb
-```
+See [`docs/FYP_WORK_PLAN.md`](docs/FYP_WORK_PLAN.md) for the full split.
 
-## Run on phone (no Android Studio)
+## What's in this repo
 
-1. Phone: **Settings → About phone → Build number** (tap 7×) → enable **USB debugging**
-2. Plug USB, accept the prompt
-3. Open a **new** PowerShell (so cache env vars load):
+| Path | Contents |
+|------|----------|
+| `lib/` | Flutter app (auth, drive, dashboard, reports, settings) |
+| `assets/models/` | On-device TFLite model |
+| `ml/` | Training scripts, Colab notebooks, class map |
+| `docs/` | FYP work plan and dataset notes |
+| `FIREBASE_SETUP.md` | Firebase / Google / Facebook setup |
+
+## Run the app
 
 ```powershell
-cd E:\Android\projects\raasta_app
-adb devices
+git clone https://github.com/ZoyaJabeen468/Raasta.git
+cd Raasta
 flutter pub get
 flutter run
 ```
 
-## Disk setup (already applied)
+Phone: enable **Developer options → USB debugging**, plug in USB, accept the prompt, then `flutter devices` / `flutter run`.
 
-| Item | Location |
-|------|----------|
-| Project | `E:\Android\projects\raasta_app` |
-| Android SDK | `E:\Android\Sdk` |
-| Gradle cache | `E:\Android\gradle-home` |
-| Pub cache | `E:\Android\pub-cache` |
+## ML training
 
-Do **not** use `E:\CUi Z\...` for the Flutter project — the space in the path breaks Android builds.
+Use **Google Colab (T4 GPU)** — see:
+
+- `ml/README.md`
+- `ml/colab/RAASTA_YOLOv8_M2_M5.ipynb`
+- `ml/colab/RAASTA_FINETUNE_HOME.md`
+
+Do **not** commit Roboflow API keys or large training datasets. Weights/datasets live on Google Drive.
+
+## Security notes
+
+- Firebase **client** config lives in `lib/firebase_options.dart` (normal for Flutter). Restrict that API key in Google Cloud (Android package + SHA-1).
+- Never commit: Roboflow keys, Facebook app secrets, `google-services.json`, keystores (`.jks`), or `.env` files.
+- Collaborators: use feature branches + pull requests for larger changes.
+
+## Branch workflow (team)
+
+```powershell
+git pull origin main
+git checkout -b yourname/feature-name
+# ... make changes ...
+git add -A
+git commit -m "Short description of why"
+git push -u origin yourname/feature-name
+```
+
+Then open a **Pull Request** on GitHub into `main`.
