@@ -1,0 +1,15 @@
+# How to open notebooks in Colab
+# 1. https://colab.research.google.com
+# 2. File → Upload notebook
+# 3. Runtime → Change runtime type → T4 GPU (for training; CPU OK for downloads)
+#
+# START HERE — download datasets to Google Drive (one by one):
+#    RAASTA_DOWNLOAD_DATASETS.ipynb
+#    Run Setup → Dataset #1 India only → tell agent "India done"
+#
+# Full M2+M5 train (after datasets merged):
+#    RAASTA_YOLOv8_M2_M5.ipynb
+#
+# Older M2-only helpers:
+#    RAASTA_M2_ADD_DATASETS.ipynb
+#    RAASTA_M2_RETRAIN.ipynb

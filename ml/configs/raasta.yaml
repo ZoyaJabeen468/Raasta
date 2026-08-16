@@ -1,0 +1,36 @@
+# Unified RAASTA detection classes (Module 2 + Module 5) — 11 classes.
+
+# On Colab, path should point to Drive merged folder.
+
+path: ../datasets/raasta_merged
+
+train: images/train
+
+val: images/val
+
+
+
+names:
+
+  0: pothole
+
+  1: crack
+
+  2: speed_bump
+
+  3: person
+
+  4: cow
+
+  5: buffalo
+
+  6: dog
+
+  7: cat
+
+  8: horse
+
+  9: donkey
+
+  10: goat
+

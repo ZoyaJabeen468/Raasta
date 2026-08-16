@@ -1,0 +1,11 @@
+# Training stack — install inside a venv or use Colab instead.
+ultralytics>=8.3.0
+roboflow>=1.1.0
+opencv-python-headless>=4.8.0
+PyYAML>=6.0
+numpy>=1.26.0
+Pillow>=10.0.0
+tqdm>=4.66.0
+# Optional local extras:
+# kaggle>=1.6.0
+# tensorflow>=2.15.0   # only if exporting TFLite outside ultralytics
