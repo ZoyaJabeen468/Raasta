@@ -33,6 +33,9 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setHazardAlerts(bool value) =>
       _update(_settings.copyWith(hazardAlerts: value));
 
+  Future<void> setWrongWayDemoMode(bool value) =>
+      _update(_settings.copyWith(wrongWayDemoMode: value));
+
   Future<void> setLanguage(LanguagePreference value) =>
       _update(_settings.copyWith(language: value));
 

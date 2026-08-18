@@ -51,6 +51,8 @@ class HazardEvent {
         return 'Goat on the road $ahead. Caution.';
       case HazardType.roadSign:
         return 'Road sign $ahead.';
+      case HazardType.wrongWay:
+        return 'Wrong-way driving detected. Turn around safely.';
     }
   }
 }

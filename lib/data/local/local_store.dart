@@ -22,6 +22,7 @@ class LocalStore {
   static const _darkModeKey = 'dark_mode';
   static const _voiceAlertsKey = 'voice_alerts';
   static const _hazardAlertsKey = 'hazard_alerts';
+  static const _wrongWayDemoKey = 'wrong_way_demo';
 
   bool _ready = false;
 
@@ -151,6 +152,7 @@ class LocalStore {
       voiceAlerts: prefs.getBool(_voiceAlertsKey) ?? true,
       hazardAlerts: prefs.getBool(_hazardAlertsKey) ?? true,
       language: LanguagePreference.fromStorage(prefs.getString(_languageKey)),
+      wrongWayDemoMode: prefs.getBool(_wrongWayDemoKey) ?? false,
     );
   }
 
@@ -160,5 +162,6 @@ class LocalStore {
     await prefs.setBool(_voiceAlertsKey, settings.voiceAlerts);
     await prefs.setBool(_hazardAlertsKey, settings.hazardAlerts);
     await prefs.setString(_languageKey, settings.language.name);
+    await prefs.setBool(_wrongWayDemoKey, settings.wrongWayDemoMode);
   }
 }

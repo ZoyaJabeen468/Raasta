@@ -7,6 +7,7 @@ import '../../core/theme/app_colors.dart';
 /// YOLO M2+M5 classes (0–10): pothole, crack, speed_bump, person, cow,
 /// buffalo, dog, cat, horse, donkey, goat.
 /// [roadSign] is reserved for Amna’s M3 pipeline (not in the YOLO model).
+/// [wrongWay] is M6 (GPS heading heuristic — not a YOLO class).
 enum HazardType {
   pothole,
   crack,
@@ -19,7 +20,8 @@ enum HazardType {
   horse,
   donkey,
   goat,
-  roadSign;
+  roadSign,
+  wrongWay;
 
   String get label {
     switch (this) {
@@ -47,6 +49,8 @@ enum HazardType {
         return 'Goat';
       case HazardType.roadSign:
         return 'Road sign';
+      case HazardType.wrongWay:
+        return 'Wrong way';
     }
   }
 
@@ -71,6 +75,8 @@ enum HazardType {
         return Icons.cruelty_free_outlined;
       case HazardType.roadSign:
         return Icons.signpost_outlined;
+      case HazardType.wrongWay:
+        return Icons.u_turn_left_rounded;
     }
   }
 
@@ -96,6 +102,8 @@ enum HazardType {
         return const Color(0xFF5D8A66);
       case HazardType.roadSign:
         return AppColors.sky;
+      case HazardType.wrongWay:
+        return AppColors.alert;
     }
   }
 

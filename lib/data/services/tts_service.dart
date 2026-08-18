@@ -267,6 +267,8 @@ class TtsService {
         return 'Caution. Goat on the road $dist.';
       case HazardType.roadSign:
         return 'Road sign $dist.';
+      case HazardType.wrongWay:
+        return 'Warning. You appear to be driving the wrong way. Turn around safely.';
     }
   }
 
@@ -297,6 +299,8 @@ class TtsService {
         return 'خبردار۔ $dist بکری ہے۔ احتیاط کریں۔';
       case HazardType.roadSign:
         return 'خبردار۔ $dist سڑک کا نشان ہے۔';
+      case HazardType.wrongWay:
+        return 'خبردار۔ آپ غلط سمت میں جا رہے ہیں۔ محفوظ طریقے سے مڑیں۔';
     }
   }
 

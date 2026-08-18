@@ -64,7 +64,8 @@ class YoloM2Interpreter {
     if (_ready) return true;
     if (kIsWeb) return false;
     try {
-      final options = InterpreterOptions()..threads = 1;
+      // 2–4 threads: faster than 1 on mid-range phones without thrashing.
+      final options = InterpreterOptions()..threads = 2;
       _interpreter = await Interpreter.fromAsset(assetPath, options: options);
       _interpreter!.allocateTensors();
       _inShape = List<int>.from(_interpreter!.getInputTensor(0).shape);
@@ -385,6 +386,7 @@ class YoloM2Interpreter {
       HazardType.donkey => 1.3,
       HazardType.goat => 0.7,
       HazardType.roadSign => 0.7,
+      HazardType.wrongWay => 1.0,
     };
 
     const fovRad = 70 * math.pi / 180;

@@ -6,8 +6,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../data/models/hazard_type.dart';
 import '../../../data/models/trip_record.dart';
 import '../../../data/services/camera_yolo_detector.dart';
+import '../../../data/services/wrong_way_service.dart';
 import '../../providers/drive_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/trips_provider.dart';
@@ -71,6 +73,7 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
     await drive.configure(
       language: settings.language,
       voiceEnabled: settings.voiceAlerts,
+      wrongWayDemoMode: settings.wrongWayDemoMode,
     );
     _drive = drive..addListener(_onDriveChanged);
     await drive.start();
@@ -254,6 +257,15 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
                                 drive.lastAlert != null)
                               const SizedBox(height: 12),
                             HazardAlertBanner(event: drive.lastAlert),
+                            if (drive.wrongWayConfirmSeconds != null &&
+                                drive.lastAlert?.type !=
+                                    HazardType.wrongWay) ...[
+                              const SizedBox(height: 12),
+                              _WrongWayProgressChip(
+                                seconds: drive.wrongWayConfirmSeconds!,
+                                demo: drive.wrongWayDemoMode,
+                              ),
+                            ],
                             if (kDebugMode && drive.usingRealtimeModel) ...[
                               const SizedBox(height: 10),
                               _AiDebugChip(
@@ -344,6 +356,51 @@ class _OverspeedBanner extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WrongWayProgressChip extends StatelessWidget {
+  const _WrongWayProgressChip({
+    required this.seconds,
+    required this.demo,
+  });
+
+  final int seconds;
+  final bool demo;
+
+  @override
+  Widget build(BuildContext context) {
+    final need = demo
+        ? WrongWayService.demoConfirmFor.inSeconds
+        : WrongWayService.confirmFor.inSeconds;
+    final left = (need - seconds).clamp(0, need);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.amber.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.u_turn_left_rounded, color: AppColors.amber, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              demo
+                  ? 'Wrong-way demo… alert in ${left}s'
+                  : 'Checking direction… ${left}s',
+              style: GoogleFonts.dmSans(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],

@@ -46,12 +46,17 @@ class GpsService {
       (pos) {
         // Geolocator speed is m/s; negative means unavailable.
         final speedMps = pos.speed.isNaN || pos.speed < 0 ? 0.0 : pos.speed;
+        final heading = pos.heading;
+        final accuracy = pos.headingAccuracy;
         _controller.add(
           GpsSample(
             speedKph: speedMps * 3.6,
             latitude: pos.latitude,
             longitude: pos.longitude,
             at: pos.timestamp,
+            headingDegrees: heading.isNaN || heading < 0 ? null : heading,
+            headingAccuracyDeg:
+                accuracy.isNaN || accuracy < 0 ? null : accuracy,
           ),
         );
       },
@@ -79,10 +84,18 @@ class GpsSample {
     required this.latitude,
     required this.longitude,
     required this.at,
+    this.headingDegrees,
+    this.headingAccuracyDeg,
   });
 
   final double speedKph;
   final double latitude;
   final double longitude;
   final DateTime? at;
+
+  /// Compass heading in degrees (0–360), or null if unavailable.
+  final double? headingDegrees;
+
+  /// Reported heading accuracy in degrees, or null if unknown.
+  final double? headingAccuracyDeg;
 }

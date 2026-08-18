@@ -19,11 +19,11 @@ Raasta uses the phone’s rear camera, GPS, and voice alerts to warn drivers abo
 | Module | Name | Status (as of plan date) | Owner going forward |
 |--------|------|--------------------------|---------------------|
 | M1 | User onboarding & profile | **Done** | Shared credit (Phase-1) |
-| M2 | Road damage detection | **Mostly done** (3-class TFLite live) | **Zoya** (improve + merge with M5) |
+| M2 | Road damage detection | **In app** (fine-tuned TFLite) | **Zoya** |
 | M3 | Traffic sign reading | **Not started** | **Amna** |
 | M4 | Speed monitoring & alerts | **Mostly done** (GPS + HUD; limit hard-coded 60) | **Amna** (connect limits from M3) |
-| M5 | Pedestrians & animals | **Not in app** (training planned) | **Zoya** |
-| M6 | Wrong-way driving | **Not started** | **Zoya** |
+| M5 | Pedestrians & animals | **In app** (same YOLO as M2) | **Zoya** |
+| M6 | Wrong-way driving | **In app** (GPS heading + demo mode) | **Zoya** |
 | M7 | Driver insights dashboard | **Mostly done** | **Zoya** (extend for new hazards) |
 
 **Already working in the app (do not rebuild):** signup/login, permissions, language (EN/Urdu/bilingual), live camera drive screen, M2 pothole/crack/speed_bump TFLite, GPS speed HUD, overspeed voice + cooldown, trip start/end, local Hive history, weekly dashboard.
@@ -84,8 +84,8 @@ When these happen, write into the same trip log structure (extend Hive model tog
 
 ### Events Zoya must emit for M7
 
-- Counts: pothole, crack, speed_bump, person, cow, dog, goat, horse  
-- `wrong_way` alert count  
+- Counts: pothole, crack, speed_bump, person, cow, buffalo, dog, cat, horse, donkey, goat  
+- `wrongWay` alert count (M6)  
 
 ---
 
@@ -119,19 +119,19 @@ When these happen, write into the same trip log structure (extend Hive model tog
 
 ### 5.2 M6 — Wrong-way (no custom training)
 
-**Goal:** Visual + voice warning after ~60s confirmation.
+**Goal:** Visual + voice warning after confirmation delay.
 
-**Approach (recommended):**
+**Implemented approach:**
 
-1. Use camera to estimate motion of other vehicles (optical flow / simple motion blobs vs frame)  
-**OR** simpler FYP path: compare **GPS heading** + “majority of detected vehicles moving opposite” if vehicle boxes exist  
-2. If ego direction conflicts with flow → start a timer  
-3. If conflict lasts **≥ 60 seconds** → alert once, then cooldown  
-4. Ignore short conflicts (turns, lane changes, parking)  
+1. Lock a **baseline GPS heading** after several moving samples at trip start  
+2. If heading stays ~opposite (≥135°) while moving → start confirm timer  
+3. After **60s** conflict → one alert + **90s** cooldown; short blips ignored  
+4. **Demo mode** (Settings → Wrong-way demo): force conflict so viva works indoors; alert after **~20s**  
+5. Log as `HazardType.wrongWay` into trip Hive history (M7)
 
 **Do not** train a wrong-way neural net for FYP.
 
-**Done when:** Demo can force a wrong-way scenario (video or staged) and show delayed alert + M7 log entry.
+**Done when:** Demo (or staged reverse) shows delayed alert + M7 count.
 
 ### 5.3 M7 — Dashboard extensions
 

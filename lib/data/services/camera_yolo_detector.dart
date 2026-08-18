@@ -30,7 +30,8 @@ class CameraYoloHazardDetector extends ChangeNotifier
   final Map<String, int> _streak = {};
 
   /// Slower inference = less heat / hang on mid-range phones.
-  static const _minInferGap = Duration(milliseconds: 1000);
+  /// Preview freezes if we infer every frame; ~1.5s keeps UI responsive.
+  static const _minInferGap = Duration(milliseconds: 1500);
 
   /// Don't spam the same class.
   static const _classCooldown = Duration(seconds: 6);
@@ -126,9 +127,11 @@ class CameraYoloHazardDetector extends ChangeNotifier
       final small = _downscale(rgb, _yolo.inputSize);
       final hits = _yolo.detect(small);
 
+      var didDebugTick = false;
       if (_lastDebugLog == null ||
           now.difference(_lastDebugLog!) > const Duration(seconds: 2)) {
         _lastDebugLog = now;
+        didDebugTick = true;
         debugPrint(
           'YOLO peak=${_yolo.lastPeakScore.toStringAsFixed(3)} '
           '(${_yolo.lastPeakLabel}) hits=${hits.length} ${_yolo.lastDebug}',
@@ -144,7 +147,9 @@ class CameraYoloHazardDetector extends ChangeNotifier
           )
           .take(6)
           .toList();
+      var boxesChanged = false;
       if (drawable.isNotEmpty) {
+        boxesChanged = true;
         _liveBoxes = drawable;
         _boxesSeenAt = now;
         _boxHoldTimer?.cancel();
@@ -152,7 +157,10 @@ class CameraYoloHazardDetector extends ChangeNotifier
           if (!_controller.isClosed) notifyListeners();
         });
       }
-      notifyListeners();
+      // Throttle UI rebuilds — notifying every inference stalled the preview.
+      if (boxesChanged || didDebugTick) {
+        notifyListeners();
+      }
 
       if (hits.isEmpty) {
         _streak.clear();

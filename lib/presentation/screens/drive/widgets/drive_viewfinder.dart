@@ -71,9 +71,11 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
         return;
       }
       final back = _pickWidestBackCamera(cameras);
+      // medium: smoother preview on mid-range phones; high was hanging
+      // while YUV→RGB + YOLO ran on the image stream.
       final controller = CameraController(
         back,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -82,6 +84,11 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
         await controller.dispose();
         return;
       }
+      // Laptop-screen demos hunt autofocus forever; lock after init.
+      try {
+        await controller.setFocusMode(FocusMode.locked);
+        await controller.setExposureMode(ExposureMode.locked);
+      } catch (_) {}
       setState(() {
         _controller = controller;
         _initializing = false;

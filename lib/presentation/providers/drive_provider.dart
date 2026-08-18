@@ -13,6 +13,7 @@ import '../../data/services/gps_service.dart';
 import '../../data/services/hazard_detector.dart';
 import '../../data/services/permission_service.dart';
 import '../../data/services/tts_service.dart';
+import '../../data/services/wrong_way_service.dart';
 
 enum DriveStatus {
   /// Not in a drive session.
@@ -37,17 +38,20 @@ class DriveProvider extends ChangeNotifier {
     TtsService? tts,
     GpsService? gps,
     PermissionService? permissions,
+    WrongWayService? wrongWay,
     Random? random,
   }) : _detector = detector ?? SimulatedHazardDetector(),
        _tts = tts ?? TtsService(),
        _gps = gps ?? GpsService(),
        _permissions = permissions ?? PermissionService(),
+       _wrongWay = wrongWay ?? WrongWayService(),
        _random = random ?? Random();
 
   final HazardDetector _detector;
   final TtsService _tts;
   final GpsService _gps;
   final PermissionService _permissions;
+  final WrongWayService _wrongWay;
   final Random _random;
 
   /// Default limit until Module 3 supplies sign-based limits.
@@ -85,11 +89,15 @@ class DriveProvider extends ChangeNotifier {
   bool _usingGps = false;
   bool _micGranted = true;
   bool _settingsVoicePreferred = true;
+  bool _wrongWayDemo = false;
+  double? _lastHeadingDegrees;
+  bool _lastHeadingAccurate = false;
 
   final List<HazardEvent> _events = [];
   final Map<HazardType, int> _counts = {};
   HazardEvent? _lastAlert;
   bool _showOverspeedBanner = false;
+  int? _wrongWayConfirmSeconds;
 
   LanguagePreference _language = LanguagePreference.english;
 
@@ -106,6 +114,9 @@ class DriveProvider extends ChangeNotifier {
   bool get usingGps => _usingGps;
   bool get micGranted => _micGranted;
   bool get showOverspeedBanner => _showOverspeedBanner;
+  bool get wrongWayDemoMode => _wrongWayDemo;
+  /// Seconds into M6 confirm window (demo or real), for HUD progress.
+  int? get wrongWayConfirmSeconds => _wrongWayConfirmSeconds;
   bool get usingRealtimeModel {
     final d = _detector;
     return d is CameraYoloHazardDetector && d.usingRealtimeModel;
@@ -126,9 +137,12 @@ class DriveProvider extends ChangeNotifier {
   Future<void> configure({
     required LanguagePreference language,
     required bool voiceEnabled,
+    bool wrongWayDemoMode = false,
   }) async {
     _language = language;
     _settingsVoicePreferred = voiceEnabled;
+    _wrongWayDemo = wrongWayDemoMode;
+    _wrongWay.demoForceConflict = wrongWayDemoMode;
     _micGranted = await _permissions.isMicrophoneGranted();
     notifyListeners();
   }
@@ -276,10 +290,15 @@ class DriveProvider extends ChangeNotifier {
     _counts.clear();
     _lastAlert = null;
     _showOverspeedBanner = false;
+    _wrongWayConfirmSeconds = null;
     _startedAt = null;
     _lastOverspeedVoiceAt = null;
     _stationarySince = null;
     _usingGps = false;
+    _lastHeadingDegrees = null;
+    _lastHeadingAccurate = false;
+    _wrongWay.reset();
+    _wrongWay.demoForceConflict = _wrongWayDemo;
   }
 
   void _onGpsSample(GpsSample sample) {
@@ -288,6 +307,11 @@ class DriveProvider extends ChangeNotifier {
 
     _speedKph = sample.speedKph.clamp(0, 200);
     if (_speedKph > _maxSpeedKph) _maxSpeedKph = _speedKph;
+    _lastHeadingDegrees = sample.headingDegrees;
+    _lastHeadingAccurate = WrongWayService.isHeadingUsable(
+      sample.headingDegrees,
+      sample.headingAccuracyDeg,
+    );
 
     if (_status == DriveStatus.arming && _speedKph >= tripStartKph) {
       unawaited(_beginActiveTrip(alreadyDetecting: true));
@@ -319,8 +343,51 @@ class DriveProvider extends ChangeNotifier {
     // Integrate distance for this 1-second slice.
     _distanceMeters += _speedKph * 1000 / 3600;
 
+    // M6: one tick per second so confirm timers stay accurate.
+    _handleWrongWayLogic(
+      headingDegrees: _lastHeadingDegrees,
+      headingAccurate: _lastHeadingAccurate,
+    );
+
     _checkStationaryAutoEnd();
     notifyListeners();
+  }
+
+  void _handleWrongWayLogic({
+    required double? headingDegrees,
+    required bool headingAccurate,
+  }) {
+    if (_status != DriveStatus.running) {
+      _wrongWayConfirmSeconds = null;
+      return;
+    }
+
+    final now = DateTime.now();
+    final shouldAlert = _wrongWay.tick(
+      tripActive: true,
+      speedKph: _speedKph,
+      now: now,
+      headingDegrees: headingDegrees,
+      headingAccurate: headingAccurate,
+    );
+    _wrongWayConfirmSeconds = _wrongWay.conflictElapsedSeconds(now);
+
+    if (!shouldAlert) return;
+
+    final event = HazardEvent(
+      type: HazardType.wrongWay,
+      at: now,
+      confidence: 1,
+      speedKph: _speedKph,
+    );
+    _events.add(event);
+    _counts[HazardType.wrongWay] = (_counts[HazardType.wrongWay] ?? 0) + 1;
+    _lastAlert = event;
+    _wrongWayConfirmSeconds = null;
+
+    if (voiceEnabled) {
+      unawaited(_tts.announceHazard(HazardType.wrongWay, _language));
+    }
   }
 
   void _handleOverspeedLogic() {

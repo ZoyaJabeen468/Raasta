@@ -18,7 +18,7 @@ import '../../widgets/app_card.dart';
 import '../../widgets/confirm_dialog.dart';
 import '../../widgets/settings_tiles.dart';
 
-const _appVersion = 'v0.4.0 · M2+M5 TFLite';
+const _appVersion = 'v0.5.0 · M2+M5+M6';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -248,6 +248,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: 'Notify me when a hazard is detected',
                   value: config.hazardAlerts,
                   onChanged: settings.setHazardAlerts,
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            const SectionLabel('M6 · Wrong-way (demo)'),
+            SettingsGroup(
+              children: [
+                SettingsSwitch(
+                  icon: Icons.u_turn_left_rounded,
+                  title: 'Wrong-way demo mode',
+                  subtitle: config.wrongWayDemoMode
+                      ? 'On Drive: alert after ~20s (FYP demo)'
+                      : 'Off: uses GPS heading vs trip direction (~60s)',
+                  value: config.wrongWayDemoMode,
+                  onChanged: settings.setWrongWayDemoMode,
                 ),
               ],
             ),
