@@ -21,7 +21,8 @@ class DefaultFirebaseOptions {
   /// (…apps.googleusercontent.com). Required for Google Sign-In on Android
   /// so Firebase receives an idToken. Leave empty until you paste it —
   /// see FIREBASE_SETUP.md § Google Sign-In.
-  static const String googleWebClientId = '';
+  static const String googleWebClientId =
+      '973226762120-5314k8lermj6fh8prqt634sn33jgn2hb.apps.googleusercontent.com';
 
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) return web;
@@ -46,14 +47,9 @@ class DefaultFirebaseOptions {
     storageBucket: 'raasta-a2689.firebasestorage.app',
   );
 
-  // NOTE: Android currently reuses the web credentials so auth works during
-  // development. Before running on a physical Android phone, register an
-  // Android app (package `com.raasta.raasta`) in Firebase and replace the
-  // appId + apiKey below with the Android values (or drop in
-  // google-services.json).
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyB302RvEvJ2421xhgCQhiesESLeAzx2Bik',
-    appId: '1:973226762120:web:a468d96fe8efd7e563a43d',
+    appId: '1:973226762120:android:e4c62ae1f9670fcd63a43d',
     messagingSenderId: '973226762120',
     projectId: 'raasta-a2689',
     authDomain: 'raasta-a2689.firebaseapp.com',

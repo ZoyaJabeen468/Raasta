@@ -57,6 +57,9 @@ ml/**/*.onnx
 !assets/models/*.tflite
 __pycache__/
 
+# Indoor camera test clips (local only)
+/test_media/
+
 # Local / secrets
 .env
 .env.*
