@@ -71,11 +71,11 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
         return;
       }
       final back = _pickWidestBackCamera(cameras);
-      // medium: smoother preview on mid-range phones; high was hanging
-      // while YUV→RGB + YOLO ran on the image stream.
+      // low keeps preview + YOLO responsive. medium made mid-range phones hang
+      // because image-stream frames are huge to convert every inference.
       final controller = CameraController(
         back,
-        ResolutionPreset.medium,
+        ResolutionPreset.low,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -84,10 +84,15 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
         await controller.dispose();
         return;
       }
-      // Laptop-screen demos hunt autofocus forever; lock after init.
+      // Widest FOV so more of the road is in frame.
+      try {
+        final minZoom = await controller.getMinZoomLevel();
+        await controller.setZoomLevel(minZoom);
+      } catch (_) {}
+      // Locked focus = less AF hunting jank while driving.
       try {
         await controller.setFocusMode(FocusMode.locked);
-        await controller.setExposureMode(ExposureMode.locked);
+        await controller.setExposureMode(ExposureMode.auto);
       } catch (_) {}
       setState(() {
         _controller = controller;
@@ -117,26 +122,25 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
 
     Widget feed;
     if (controller != null && controller.value.isInitialized) {
-      final previewW = controller.value.previewSize?.height ?? 1;
-      final previewH = controller.value.previewSize?.width ?? 1;
+      // Portrait phone + wide camera strip (like dashcam apps):
+      // fill width, keep natural aspect → sharp image, black bars top/bottom.
+      // BoxFit.cover on low-res was what made the feed look blurry.
+      final ar = controller.value.aspectRatio;
+      final bandAr = ar >= 1 ? ar : 1 / ar;
       feed = ColoredBox(
         color: Colors.black,
-        child: SizedBox.expand(
-          child: FittedBox(
-            fit: BoxFit.contain,
-            child: SizedBox(
-              width: previewW,
-              height: previewH,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CameraPreview(controller),
-                  if (widget.boxes.isNotEmpty)
-                    CustomPaint(
-                      painter: _HazardBoxesPainter(widget.boxes),
-                    ),
-                ],
-              ),
+        child: Center(
+          child: AspectRatio(
+            aspectRatio: bandAr,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CameraPreview(controller),
+                if (widget.boxes.isNotEmpty)
+                  CustomPaint(
+                    painter: _HazardBoxesPainter(widget.boxes),
+                  ),
+              ],
             ),
           ),
         ),
@@ -160,8 +164,9 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Color(0xB3000000), Color(0x00000000), Color(0xCC000000)],
-              stops: [0, 0.4, 1],
+              // Light veil only — heavy black made the road look soft/blurry.
+              colors: [Color(0x66000000), Color(0x00000000), Color(0x88000000)],
+              stops: [0, 0.35, 1],
             ),
           ),
         ),
@@ -189,53 +194,60 @@ class _HazardBoxesPainter extends CustomPainter {
       if (rect.width < 4 || rect.height < 4) continue;
 
       final color = box.type.color;
-      final stroke = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.2
-        ..color = color;
-      final fill = Paint()
-        ..style = PaintingStyle.fill
-        ..color = color.withValues(alpha: 0.14);
 
+      // Soft fill
       canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-        fill,
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-        stroke,
+        RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+        Paint()
+          ..style = PaintingStyle.fill
+          ..color = color.withValues(alpha: 0.18),
       );
 
+      // Dark outline for contrast on bright roads
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5.5
+          ..color = Colors.black.withValues(alpha: 0.55),
+      );
+      // Colored frame
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.0
+          ..color = color,
+      );
+
+      // Bold corner brackets (demo / FYP look)
       final corner = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4.5
+        ..strokeWidth = 5.5
         ..strokeCap = StrokeCap.round
         ..color = color;
-      final c = (rect.shortestSide * 0.18).clamp(10.0, 22.0);
-      canvas.drawLine(rect.topLeft, rect.topLeft.translate(c, 0), corner);
-      canvas.drawLine(rect.topLeft, rect.topLeft.translate(0, c), corner);
-      canvas.drawLine(rect.topRight, rect.topRight.translate(-c, 0), corner);
-      canvas.drawLine(rect.topRight, rect.topRight.translate(0, c), corner);
-      canvas.drawLine(rect.bottomLeft, rect.bottomLeft.translate(c, 0), corner);
-      canvas.drawLine(rect.bottomLeft, rect.bottomLeft.translate(0, -c), corner);
-      canvas.drawLine(
-        rect.bottomRight,
-        rect.bottomRight.translate(-c, 0),
-        corner,
-      );
-      canvas.drawLine(
-        rect.bottomRight,
-        rect.bottomRight.translate(0, -c),
-        corner,
-      );
+      final c = (rect.shortestSide * 0.22).clamp(14.0, 28.0);
+      void bracket(Offset o, double dx, double dy) {
+        canvas.drawLine(o, o.translate(dx, 0), corner);
+        canvas.drawLine(o, o.translate(0, dy), corner);
+      }
+
+      bracket(rect.topLeft, c, c);
+      bracket(rect.topRight, -c, c);
+      bracket(rect.bottomLeft, c, -c);
+      bracket(rect.bottomRight, -c, -c);
 
       final pct = (box.confidence * 100).clamp(0, 99).round();
-      final label = '${box.type.label}  $pct%';
+      final dist = box.distanceMeters;
+      final label = dist != null
+          ? '${box.type.label}  $pct%  ·  ${dist.round()}m'
+          : '${box.type.label}  $pct%';
+
       final builder = ui.ParagraphBuilder(
         ui.ParagraphStyle(
           textAlign: TextAlign.left,
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
           maxLines: 1,
           ellipsis: '…',
         ),
@@ -243,22 +255,26 @@ class _HazardBoxesPainter extends CustomPainter {
         ..pushStyle(ui.TextStyle(color: Colors.white))
         ..addText(label);
       final paragraph = builder.build()
-        ..layout(ui.ParagraphConstraints(width: size.width * 0.7));
+        ..layout(ui.ParagraphConstraints(width: size.width * 0.85));
 
-      final tagW = paragraph.maxIntrinsicWidth + 16;
-      final tagH = paragraph.height + 8;
-      var tagTop = rect.top - tagH - 4;
-      if (tagTop < 0) tagTop = rect.top + 4;
-      final tagLeft = rect.left.clamp(0.0, size.width - tagW);
+      final tagW = paragraph.maxIntrinsicWidth + 20;
+      final tagH = paragraph.height + 10;
+      var tagTop = rect.top - tagH - 6;
+      if (tagTop < 4) tagTop = rect.top + 6;
+      final tagLeft = rect.left.clamp(4.0, size.width - tagW - 4);
 
       final tagRect = RRect.fromRectAndRadius(
         Rect.fromLTWH(tagLeft, tagTop, tagW, tagH),
-        const Radius.circular(6),
+        const Radius.circular(8),
+      );
+      canvas.drawRRect(
+        tagRect,
+        Paint()..color = Colors.black.withValues(alpha: 0.45),
       );
       canvas.drawRRect(tagRect, Paint()..color = color);
       canvas.drawParagraph(
         paragraph,
-        Offset(tagLeft + 8, tagTop + 4),
+        Offset(tagLeft + 10, tagTop + 5),
       );
     }
   }
@@ -274,7 +290,8 @@ class _HazardBoxesPainter extends CustomPainter {
           a.top != b.top ||
           a.right != b.right ||
           a.bottom != b.bottom ||
-          a.confidence != b.confidence) {
+          a.confidence != b.confidence ||
+          a.distanceMeters != b.distanceMeters) {
         return true;
       }
     }

@@ -17,6 +17,7 @@ class DriveHud extends StatelessWidget {
     required this.hazardCount,
     this.usingGps = true,
     this.arming = false,
+    this.compact = false,
     this.onStartNow,
   });
 
@@ -28,10 +29,41 @@ class DriveHud extends StatelessWidget {
   final int hazardCount;
   final bool usingGps;
   final bool arming;
+  final bool compact;
   final VoidCallback? onStartNow;
 
   @override
   Widget build(BuildContext context) {
+    final metrics = Row(
+      children: [
+        Expanded(
+          child: _Metric(
+            icon: Icons.schedule_rounded,
+            label: 'Time',
+            value: Format.duration(elapsedSeconds),
+            compact: compact,
+          ),
+        ),
+        Expanded(
+          child: _Metric(
+            icon: Icons.straighten_rounded,
+            label: 'Distance',
+            value: Format.distance(distanceMeters),
+            compact: compact,
+          ),
+        ),
+        Expanded(
+          child: _Metric(
+            icon: Icons.warning_amber_rounded,
+            label: 'Hazards',
+            value: '$hazardCount',
+            tint: hazardCount > 0 ? AppColors.amber : null,
+            compact: compact,
+          ),
+        ),
+      ],
+    );
+
     return Column(
       children: [
         _Speedometer(
@@ -40,35 +72,11 @@ class DriveHud extends StatelessWidget {
           band: band,
           usingGps: usingGps,
           arming: arming,
+          compact: compact,
           onStartNow: onStartNow,
         ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: _Metric(
-                icon: Icons.schedule_rounded,
-                label: 'Time',
-                value: Format.duration(elapsedSeconds),
-              ),
-            ),
-            Expanded(
-              child: _Metric(
-                icon: Icons.straighten_rounded,
-                label: 'Distance',
-                value: Format.distance(distanceMeters),
-              ),
-            ),
-            Expanded(
-              child: _Metric(
-                icon: Icons.warning_amber_rounded,
-                label: 'Hazards',
-                value: '$hazardCount',
-                tint: hazardCount > 0 ? AppColors.amber : null,
-              ),
-            ),
-          ],
-        ),
+        SizedBox(height: compact ? 8 : 14),
+        metrics,
       ],
     );
   }
@@ -81,6 +89,7 @@ class _Speedometer extends StatelessWidget {
     required this.band,
     required this.usingGps,
     required this.arming,
+    this.compact = false,
     this.onStartNow,
   });
 
@@ -89,14 +98,19 @@ class _Speedometer extends StatelessWidget {
   final SpeedBand band;
   final bool usingGps;
   final bool arming;
+  final bool compact;
   final VoidCallback? onStartNow;
 
   @override
   Widget build(BuildContext context) {
     final tint = band.color;
+    final speedSize = compact ? 28.0 : 36.0;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 14 : 18,
+        vertical: compact ? 10 : 12,
+      ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(20),
@@ -120,7 +134,7 @@ class _Speedometer extends StatelessWidget {
                 '${speedKph.round()}',
                 style: GoogleFonts.sora(
                   color: tint,
-                  fontSize: 36,
+                  fontSize: speedSize,
                   fontWeight: FontWeight.w700,
                   height: 1,
                 ),
@@ -157,7 +171,7 @@ class _Speedometer extends StatelessWidget {
                     '$speedLimitKph',
                     style: GoogleFonts.sora(
                       color: Colors.white,
-                      fontSize: 18,
+                      fontSize: compact ? 16 : 18,
                       fontWeight: FontWeight.w700,
                       height: 1.1,
                     ),
@@ -166,10 +180,12 @@ class _Speedometer extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: compact ? 6 : 8),
           if (arming) ...[
             Text(
-              'AI is scanning · trip starts above ${DriveHudConstants.tripStartHint} km/h',
+              compact
+                  ? 'Scanning · tap Start below'
+                  : 'AI is scanning · trip starts above ${DriveHudConstants.tripStartHint} km/h',
               style: GoogleFonts.dmSans(
                 color: Colors.white70,
                 fontSize: 11.5,
@@ -237,12 +253,14 @@ class _Metric extends StatelessWidget {
     required this.label,
     required this.value,
     this.tint,
+    this.compact = false,
   });
 
   final IconData icon;
   final String label;
   final String value;
   final Color? tint;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -250,20 +268,23 @@ class _Metric extends StatelessWidget {
 
     return Column(
       children: [
-        Icon(icon, size: 16, color: color.withValues(alpha: 0.85)),
-        const SizedBox(height: 5),
+        Icon(icon, size: compact ? 14 : 16, color: color.withValues(alpha: 0.85)),
+        SizedBox(height: compact ? 3 : 5),
         Text(
           value,
           style: GoogleFonts.sora(
             color: color,
-            fontSize: 15,
+            fontSize: compact ? 13 : 15,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 1),
         Text(
           label,
-          style: GoogleFonts.dmSans(color: Colors.white60, fontSize: 11),
+          style: GoogleFonts.dmSans(
+            color: Colors.white60,
+            fontSize: compact ? 10 : 11,
+          ),
         ),
       ],
     );

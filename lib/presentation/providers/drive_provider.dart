@@ -14,6 +14,7 @@ import '../../data/services/hazard_detector.dart';
 import '../../data/services/permission_service.dart';
 import '../../data/services/tts_service.dart';
 import '../../data/services/wrong_way_service.dart';
+import '../screens/drive/models/drive_alert.dart';
 
 enum DriveStatus {
   /// Not in a drive session.
@@ -95,8 +96,8 @@ class DriveProvider extends ChangeNotifier {
 
   final List<HazardEvent> _events = [];
   final Map<HazardType, int> _counts = {};
-  HazardEvent? _lastAlert;
-  bool _showOverspeedBanner = false;
+  DriveAlert? _activeAlert;
+  final List<DriveAlert> _alertQueue = [];
   int? _wrongWayConfirmSeconds;
 
   LanguagePreference _language = LanguagePreference.english;
@@ -113,7 +114,7 @@ class DriveProvider extends ChangeNotifier {
   bool get isOverspeed => _speedKph > speedLimitKph;
   bool get usingGps => _usingGps;
   bool get micGranted => _micGranted;
-  bool get showOverspeedBanner => _showOverspeedBanner;
+  DriveAlert? get activeAlert => _activeAlert;
   bool get wrongWayDemoMode => _wrongWayDemo;
   /// Seconds into M6 confirm window (demo or real), for HUD progress.
   int? get wrongWayConfirmSeconds => _wrongWayConfirmSeconds;
@@ -124,7 +125,6 @@ class DriveProvider extends ChangeNotifier {
   List<HazardEvent> get events => List.unmodifiable(_events);
   Map<HazardType, int> get counts => Map.unmodifiable(_counts);
   int get hazardCount => _events.length;
-  HazardEvent? get lastAlert => _lastAlert;
 
   /// Effective voice: settings + mic permission (FE-6) + in-session mute.
   bool get voiceEnabled => _settingsVoicePreferred && _micGranted;
@@ -187,6 +187,15 @@ class DriveProvider extends ChangeNotifier {
     }
 
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+
+    // M6 demo: auto-start trip so wrong-way timer runs without GPS speed.
+    if (_wrongWayDemo && _status == DriveStatus.arming) {
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (_status == DriveStatus.arming) {
+          unawaited(forceStartTrip());
+        }
+      });
+    }
   }
 
   /// Manual override when GPS stays at 0 (indoor demo / parked test).
@@ -262,16 +271,39 @@ class DriveProvider extends ChangeNotifier {
     await _gps.stop();
   }
 
-  void clearAlert() {
-    _lastAlert = null;
+  void dismissActiveAlert() {
+    _activeAlert = null;
+    _promoteNextAlert();
     notifyListeners();
   }
 
-  void clearOverspeedBanner() {
-    if (!_showOverspeedBanner) return;
-    _showOverspeedBanner = false;
+  void _enqueueAlert(DriveAlert alert) {
+    if (_activeAlert == null) {
+      _activeAlert = alert;
+      notifyListeners();
+      return;
+    }
+    if (alert.priority > _activeAlert!.priority) {
+      _alertQueue.add(_activeAlert!);
+      _activeAlert = alert;
+    } else {
+      _alertQueue.add(alert);
+    }
+    _alertQueue.sort((a, b) => b.priority.compareTo(a.priority));
     notifyListeners();
   }
+
+  void _promoteNextAlert() {
+    if (_alertQueue.isEmpty) {
+      _activeAlert = null;
+      return;
+    }
+    _activeAlert = _alertQueue.removeAt(0);
+  }
+
+  void clearAlert() => dismissActiveAlert();
+
+  void clearOverspeedBanner() => dismissActiveAlert();
 
   void reset() {
     _resetState();
@@ -288,8 +320,8 @@ class DriveProvider extends ChangeNotifier {
     _wasOverspeed = false;
     _events.clear();
     _counts.clear();
-    _lastAlert = null;
-    _showOverspeedBanner = false;
+    _activeAlert = null;
+    _alertQueue.clear();
     _wrongWayConfirmSeconds = null;
     _startedAt = null;
     _lastOverspeedVoiceAt = null;
@@ -382,7 +414,7 @@ class DriveProvider extends ChangeNotifier {
     );
     _events.add(event);
     _counts[HazardType.wrongWay] = (_counts[HazardType.wrongWay] ?? 0) + 1;
-    _lastAlert = event;
+    _enqueueAlert(DriveAlert.hazard(event));
     _wrongWayConfirmSeconds = null;
 
     if (voiceEnabled) {
@@ -394,7 +426,12 @@ class DriveProvider extends ChangeNotifier {
     final over = _speedKph > speedLimitKph;
     if (over && !_wasOverspeed) {
       _overspeedCount++;
-      _showOverspeedBanner = true;
+      _enqueueAlert(
+        DriveAlert.overspeed(
+          speedKph: _speedKph,
+          limitKph: speedLimitKph,
+        ),
+      );
     }
     _wasOverspeed = over;
 
@@ -408,7 +445,6 @@ class DriveProvider extends ChangeNotifier {
     if (last != null && now.difference(last) < overspeedCooldown) return;
 
     _lastOverspeedVoiceAt = now;
-    _showOverspeedBanner = true;
     unawaited(
       _tts.announceOverspeed(_language, limitKph: speedLimitKph),
     );
@@ -470,8 +506,7 @@ class DriveProvider extends ChangeNotifier {
     );
     _events.add(event);
     _counts[detection.type] = (_counts[detection.type] ?? 0) + 1;
-    _lastAlert = event;
-    notifyListeners();
+    _enqueueAlert(DriveAlert.hazard(event));
 
     if (voiceEnabled) {
       // Extra guard against bilingual double-spam from rapid events.

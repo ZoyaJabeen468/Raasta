@@ -126,6 +126,20 @@ LABEL_ALIASES = {
 
     "child": "person",
 
+    "boy": "person",
+
+    "girl": "person",
+
+    "kid": "person",
+
+    "elderly": "person",
+
+    "old": "person",
+
+    "adult": "person",
+
+    "walker": "person",
+
     # cow
 
     "cow": "cow",

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 import '../models/hazard_type.dart';
@@ -29,9 +30,9 @@ class CameraYoloHazardDetector extends ChangeNotifier
   final Map<String, DateTime> _lastAlertAt = {};
   final Map<String, int> _streak = {};
 
-  /// Slower inference = less heat / hang on mid-range phones.
-  /// Preview freezes if we infer every frame; ~1.5s keeps UI responsive.
-  static const _minInferGap = Duration(milliseconds: 1500);
+  /// Infer rarely enough that the camera preview stays fluid.
+  /// Heavy YOLO on the image-stream path is what caused hangs.
+  static const _minInferGap = Duration(milliseconds: 3000);
 
   /// Don't spam the same class.
   static const _classCooldown = Duration(seconds: 6);
@@ -39,11 +40,19 @@ class CameraYoloHazardDetector extends ChangeNotifier
   /// Gap between any spoken/visual alerts.
   static const _globalAlertGap = Duration(seconds: 4);
 
-  /// Two hits in a row — enough to cut flicker, not so high demos never fire.
+  /// Road damage: 2 hits. Person/animals: 3 (fewer false alerts on photos).
   static const _requiredStreak = 2;
+  static const _animalStreak = 3;
+  static const _personStreak = 3;
 
-  /// Keep drawing boxes briefly after a miss so they don't blink.
-  static const _boxHold = Duration(milliseconds: 1200);
+  /// Hold boxes after a miss (anti-flicker, RoadGuardian-style).
+  static const _boxHold = Duration(milliseconds: 1600);
+
+  /// Blend factor toward new box (0 = freeze old, 1 = jump to new).
+  static const _boxSmooth = 0.42;
+
+  /// Keep the UI calm while driving — only top priority hazards.
+  static const _maxOverlayBoxes = 2;
 
   List<HazardDetection> _liveBoxes = const [];
   DateTime? _boxesSeenAt;
@@ -98,6 +107,7 @@ class CameraYoloHazardDetector extends ChangeNotifier
     if (cam.value.isStreamingImages) return;
 
     try {
+      // Non-async callback: never block the camera plugin waiting on YOLO.
       await cam.startImageStream(_onFrame);
     } catch (e) {
       debugPrint('startImageStream failed: $e');
@@ -107,7 +117,7 @@ class CameraYoloHazardDetector extends ChangeNotifier
     }
   }
 
-  Future<void> _onFrame(CameraImage frame) async {
+  void _onFrame(CameraImage frame) {
     if (!_running || !_usingModel || _busy) return;
     final now = DateTime.now();
     if (_lastInferAt != null &&
@@ -116,49 +126,69 @@ class CameraYoloHazardDetector extends ChangeNotifier
     }
     _lastInferAt = now;
     _busy = true;
+
+    // Snapshot plane bytes NOW — CameraImage buffers are recycled after return.
+    final snap = _FrameSnapshot.from(frame);
+    final sensorOrientation = _camera?.description.sensorOrientation ?? 0;
+    final deviceOrientation = _camera?.value.deviceOrientation;
+    final isFront =
+        _camera?.description.lensDirection == CameraLensDirection.front;
+
+    unawaited(
+      _runInference(
+        snap: snap,
+        sensorOrientation: sensorOrientation,
+        deviceOrientation: deviceOrientation,
+        isFront: isFront,
+      ),
+    );
+  }
+
+  Future<void> _runInference({
+    required _FrameSnapshot snap,
+    required int sensorOrientation,
+    required DeviceOrientation? deviceOrientation,
+    required bool isFront,
+  }) async {
     try {
-      final rgb = _cameraImageToRgb(
-        frame,
-        _camera?.description.sensorOrientation ?? 0,
+      // Let a camera/UI frame paint before heavy work.
+      await Future<void>.delayed(Duration.zero);
+      if (!_running) return;
+
+      final rgb = snap.toRgb(
+        sensorOrientation: sensorOrientation,
+        deviceOrientation: deviceOrientation,
+        isFront: isFront,
       );
       if (rgb == null) return;
 
-      // Keep native letterbox quality — do not shrink below model input.
       final small = _downscale(rgb, _yolo.inputSize);
       final hits = _yolo.detect(small);
 
-      var didDebugTick = false;
+      final now = DateTime.now();
       if (_lastDebugLog == null ||
-          now.difference(_lastDebugLog!) > const Duration(seconds: 2)) {
+          now.difference(_lastDebugLog!) > const Duration(seconds: 3)) {
         _lastDebugLog = now;
-        didDebugTick = true;
         debugPrint(
           'YOLO peak=${_yolo.lastPeakScore.toStringAsFixed(3)} '
           '(${_yolo.lastPeakLabel}) hits=${hits.length} ${_yolo.lastDebug}',
         );
       }
 
-      // Overlay: show confident boxes (road damage can be a bit lower).
-      final drawable = hits
-          .where(
-            (h) =>
-                h.hasBox &&
-                h.confidence >= YoloM2Interpreter.thresholdFor(h.type) * 0.95,
-          )
-          .take(6)
-          .toList();
-      var boxesChanged = false;
+      final drawable = _pickOverlayBoxes(
+        hits.where(
+          (h) =>
+              h.hasBox &&
+              h.confidence >= YoloM2Interpreter.thresholdFor(h.type),
+        ),
+      );
       if (drawable.isNotEmpty) {
-        boxesChanged = true;
-        _liveBoxes = drawable;
+        _liveBoxes = _smoothBoxes(drawable);
         _boxesSeenAt = now;
         _boxHoldTimer?.cancel();
         _boxHoldTimer = Timer(_boxHold + const Duration(milliseconds: 50), () {
           if (!_controller.isClosed) notifyListeners();
         });
-      }
-      // Throttle UI rebuilds — notifying every inference stalled the preview.
-      if (boxesChanged || didDebugTick) {
         notifyListeners();
       }
 
@@ -167,7 +197,6 @@ class CameraYoloHazardDetector extends ChangeNotifier
         return;
       }
 
-      // Prefer road damage over weak animal false-positives (common on photos).
       hits.sort((a, b) {
         final ap = _alertPriority(a);
         final bp = _alertPriority(b);
@@ -185,7 +214,10 @@ class CameraYoloHazardDetector extends ChangeNotifier
       for (final k in _streak.keys.where((k) => k != key).toList()) {
         _streak.remove(k);
       }
-      if ((_streak[key] ?? 0) < _requiredStreak) return;
+      final need = YoloM2Interpreter.isAnimal(best.type)
+          ? _animalStreak
+          : (best.type == HazardType.person ? _personStreak : _requiredStreak);
+      if ((_streak[key] ?? 0) < need) return;
 
       final lastClass = _lastAlertAt[key];
       if (lastClass != null && now.difference(lastClass) < _classCooldown) {
@@ -231,6 +263,78 @@ class CameraYoloHazardDetector extends ChangeNotifier
     _controller.close();
     super.dispose();
   }
+
+  /// Prefer road damage, then person, then animals; nearer boxes win ties.
+  List<HazardDetection> _pickOverlayBoxes(Iterable<HazardDetection> candidates) {
+    final list = candidates.toList();
+    if (list.isEmpty) return const [];
+    list.sort((a, b) {
+      final ap = _alertPriority(a);
+      final bp = _alertPriority(b);
+      if (ap != bp) return bp.compareTo(ap);
+      final ad = a.distanceMeters ?? 999;
+      final bd = b.distanceMeters ?? 999;
+      if (ad != bd) return ad.compareTo(bd);
+      return b.confidence.compareTo(a.confidence);
+    });
+    return list.take(_maxOverlayBoxes).toList();
+  }
+
+  /// Match by class + IoU, then EMA-smooth corners so boxes don't jitter.
+  List<HazardDetection> _smoothBoxes(List<HazardDetection> next) {
+    if (_liveBoxes.isEmpty) return next;
+    final out = <HazardDetection>[];
+    final usedPrev = <int>{};
+    for (final n in next) {
+      var bestIdx = -1;
+      var bestIou = 0.0;
+      for (var i = 0; i < _liveBoxes.length; i++) {
+        if (usedPrev.contains(i)) continue;
+        final p = _liveBoxes[i];
+        if (p.type != n.type || !p.hasBox || !n.hasBox) continue;
+        final iou = _normIou(p, n);
+        if (iou > bestIou) {
+          bestIou = iou;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx >= 0 && bestIou >= 0.12) {
+        usedPrev.add(bestIdx);
+        final p = _liveBoxes[bestIdx];
+        const a = _boxSmooth;
+        out.add(
+          HazardDetection(
+            type: n.type,
+            confidence: n.confidence,
+            distanceMeters: n.distanceMeters,
+            left: _lerp(p.left!, n.left!, a),
+            top: _lerp(p.top!, n.top!, a),
+            right: _lerp(p.right!, n.right!, a),
+            bottom: _lerp(p.bottom!, n.bottom!, a),
+          ),
+        );
+      } else {
+        out.add(n);
+      }
+    }
+    return out;
+  }
+
+  static double _lerp(double a, double b, double t) => a + (b - a) * t;
+
+  static double _normIou(HazardDetection a, HazardDetection b) {
+    final x1 = a.left! > b.left! ? a.left! : b.left!;
+    final y1 = a.top! > b.top! ? a.top! : b.top!;
+    final x2 = a.right! < b.right! ? a.right! : b.right!;
+    final y2 = a.bottom! < b.bottom! ? a.bottom! : b.bottom!;
+    final iw = x2 > x1 ? x2 - x1 : 0.0;
+    final ih = y2 > y1 ? y2 - y1 : 0.0;
+    final inter = iw * ih;
+    final areaA = (a.right! - a.left!) * (a.bottom! - a.top!);
+    final areaB = (b.right! - b.left!) * (b.bottom! - b.top!);
+    final union = areaA + areaB - inter;
+    return union <= 0 ? 0 : inter / union;
+  }
 }
 
 /// Higher = preferred for the spoken/banner alert.
@@ -261,70 +365,140 @@ img.Image _downscale(img.Image src, int maxSide) {
   );
 }
 
-img.Image? _cameraImageToRgb(CameraImage image, int sensorOrientation) {
-  try {
-    // Convert at reduced resolution for speed (every 2nd pixel).
-    img.Image? rgb;
-    if (image.format.group == ImageFormatGroup.bgra8888) {
-      final bytes = image.planes.first.bytes;
-      rgb = img.Image.fromBytes(
+/// Copied camera planes so AI can run after the stream callback returns.
+class _FrameSnapshot {
+  _FrameSnapshot._({
+    required this.width,
+    required this.height,
+    required this.isBgra,
+    required this.plane0,
+    required this.rowStride0,
+    this.plane1,
+    this.plane2,
+    this.uvRowStride = 0,
+    this.uvPixelStride = 1,
+  });
+
+  final int width;
+  final int height;
+  final bool isBgra;
+  final Uint8List plane0;
+  final int rowStride0;
+  final Uint8List? plane1;
+  final Uint8List? plane2;
+  final int uvRowStride;
+  final int uvPixelStride;
+
+  factory _FrameSnapshot.from(CameraImage image) {
+    final isBgra = image.format.group == ImageFormatGroup.bgra8888;
+    Uint8List copyOf(Uint8List src) => Uint8List.fromList(src);
+    if (isBgra) {
+      return _FrameSnapshot._(
         width: image.width,
         height: image.height,
-        bytes: bytes.buffer,
-        order: img.ChannelOrder.bgra,
+        isBgra: true,
+        plane0: copyOf(image.planes[0].bytes),
+        rowStride0: image.planes[0].bytesPerRow,
       );
-    } else if (image.format.group == ImageFormatGroup.yuv420) {
-      rgb = _yuv420ToImageFast(image);
     }
-    if (rgb == null) return null;
-
-    if (sensorOrientation == 90) {
-      return img.copyRotate(rgb, angle: 90);
-    }
-    if (sensorOrientation == 270) {
-      return img.copyRotate(rgb, angle: 270);
-    }
-    if (sensorOrientation == 180) {
-      return img.copyRotate(rgb, angle: 180);
-    }
-    return rgb;
-  } catch (e) {
-    debugPrint('camera->rgb failed: $e');
-    return null;
+    return _FrameSnapshot._(
+      width: image.width,
+      height: image.height,
+      isBgra: false,
+      plane0: copyOf(image.planes[0].bytes),
+      rowStride0: image.planes[0].bytesPerRow,
+      plane1: copyOf(image.planes[1].bytes),
+      plane2: copyOf(image.planes[2].bytes),
+      uvRowStride: image.planes[1].bytesPerRow,
+      uvPixelStride: image.planes[1].bytesPerPixel ?? 1,
+    );
   }
-}
 
-/// Subsamples 2x while converting — much cheaper on mid-range phones.
-img.Image _yuv420ToImageFast(CameraImage image) {
-  final srcW = image.width;
-  final srcH = image.height;
-  final w = srcW ~/ 2;
-  final h = srcH ~/ 2;
-  final yPlane = image.planes[0];
-  final uPlane = image.planes[1];
-  final vPlane = image.planes[2];
-  final uvRowStride = uPlane.bytesPerRow;
-  final uvPixelStride = uPlane.bytesPerPixel ?? 1;
+  img.Image? toRgb({
+    required int sensorOrientation,
+    DeviceOrientation? deviceOrientation,
+    bool isFront = false,
+  }) {
+    try {
+      img.Image? rgb = isBgra ? _bgraToImageFast() : _yuv420ToImageFast();
+      if (rgb == null) return null;
 
-  final out = img.Image(width: w, height: h);
-  for (var y = 0; y < h; y++) {
-    final srcY = y * 2;
-    final yRow = srcY * yPlane.bytesPerRow;
-    final uvRow = (srcY >> 1) * uvRowStride;
-    for (var x = 0; x < w; x++) {
-      final srcX = x * 2;
-      final yp = yPlane.bytes[yRow + srcX] & 0xff;
-      final uvIndex = uvRow + (srcX >> 1) * uvPixelStride;
-      final ui = uvIndex.clamp(0, uPlane.bytes.length - 1);
-      final vi = uvIndex.clamp(0, vPlane.bytes.length - 1);
-      final up = uPlane.bytes[ui] & 0xff;
-      final vp = vPlane.bytes[vi] & 0xff;
+      final deviceDeg = switch (deviceOrientation) {
+        DeviceOrientation.portraitUp => 0,
+        DeviceOrientation.landscapeLeft => 90,
+        DeviceOrientation.portraitDown => 180,
+        DeviceOrientation.landscapeRight => 270,
+        null => 0,
+      };
 
-      var r = (yp + 1.370705 * (vp - 128)).round();
-      var g = (yp - 0.337633 * (up - 128) - 0.698001 * (vp - 128)).round();
-      var b = (yp + 1.732446 * (up - 128)).round();
-      out.setPixelRgb(x, y, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255));
+      final rotation = isFront
+          ? (sensorOrientation + deviceDeg) % 360
+          : (sensorOrientation - deviceDeg + 360) % 360;
+
+      if (rotation == 90) return img.copyRotate(rgb, angle: 90);
+      if (rotation == 270) return img.copyRotate(rgb, angle: 270);
+      if (rotation == 180) return img.copyRotate(rgb, angle: 180);
+      return rgb;
+    } catch (e) {
+      debugPrint('camera->rgb failed: $e');
+      return null;
     }
   }
-  return out;
+
+  /// 3× subsample — much cheaper than full-res convert on phone.
+  static const _step = 3;
+
+  img.Image _bgraToImageFast() {
+    final w = width ~/ _step;
+    final h = height ~/ _step;
+    final out = img.Image(width: w, height: h);
+    for (var y = 0; y < h; y++) {
+      final srcY = y * _step;
+      final row = srcY * rowStride0;
+      for (var x = 0; x < w; x++) {
+        final i = row + (x * _step) * 4;
+        if (i + 2 >= plane0.length) continue;
+        out.setPixelRgb(
+          x,
+          y,
+          plane0[i + 2] & 0xff,
+          plane0[i + 1] & 0xff,
+          plane0[i] & 0xff,
+        );
+      }
+    }
+    return out;
+  }
+
+  img.Image? _yuv420ToImageFast() {
+    final u = plane1;
+    final v = plane2;
+    if (u == null || v == null) return null;
+    final w = width ~/ _step;
+    final h = height ~/ _step;
+    final out = img.Image(width: w, height: h);
+    for (var y = 0; y < h; y++) {
+      final srcY = y * _step;
+      final yRow = srcY * rowStride0;
+      final uvRow = (srcY >> 1) * uvRowStride;
+      for (var x = 0; x < w; x++) {
+        final srcX = x * _step;
+        final yp = plane0[yRow + srcX] & 0xff;
+        final uvIndex = uvRow + (srcX >> 1) * uvPixelStride;
+        final ui = uvIndex.clamp(0, u.length - 1);
+        final vi = uvIndex.clamp(0, v.length - 1);
+        final up = u[ui] & 0xff;
+        final vp = v[vi] & 0xff;
+        final r = (yp + 1.370705 * (vp - 128)).round().clamp(0, 255);
+        final g =
+            (yp - 0.337633 * (up - 128) - 0.698001 * (vp - 128)).round().clamp(
+              0,
+              255,
+            );
+        final b = (yp + 1.732446 * (up - 128)).round().clamp(0, 255);
+        out.setPixelRgb(x, y, r, g, b);
+      }
+    }
+    return out;
+  }
 }

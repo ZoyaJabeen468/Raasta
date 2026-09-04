@@ -21,12 +21,16 @@ class YoloM2Interpreter {
   static const assetPath = 'assets/models/raasta_m2_m5.tflite';
   static const numClasses = 11;
 
-  /// Phone-demo thresholds. Animals need higher confidence (fewer false goats).
-  static const confThreshold = 0.28;
+  /// Phone-demo thresholds. Animals look alike in the model — keep them strict.
+  /// Person is strict too: laptop-screen / room clutter often false-triggers.
+  static const confThreshold = 0.32;
   static const speedBumpThreshold = 0.42;
-  static const animalThreshold = 0.55;
+  static const personThreshold = 0.58;
+  static const animalThreshold = 0.68;
   static const iouThreshold = 0.45;
-  static const lowerRoiFraction = 0.95;
+  /// Keep the lower portion of the frame (road ahead). Top sky / ceiling
+  /// often causes false person/animal hits indoors and on laptop demos.
+  static const lowerRoiFraction = 0.68;
   static const maxBoxAreaFraction = 0.70;
 
   static bool isAnimal(HazardType type) {
@@ -42,7 +46,7 @@ class YoloM2Interpreter {
   static double thresholdFor(HazardType type) {
     if (type == HazardType.speedBump) return speedBumpThreshold;
     if (isAnimal(type)) return animalThreshold;
-    if (type == HazardType.person) return 0.45;
+    if (type == HazardType.person) return personThreshold;
     return confThreshold; // pothole / crack
   }
 
@@ -64,8 +68,8 @@ class YoloM2Interpreter {
     if (_ready) return true;
     if (kIsWeb) return false;
     try {
-      // 2–4 threads: faster than 1 on mid-range phones without thrashing.
-      final options = InterpreterOptions()..threads = 2;
+      // 1 thread: less CPU fight with the camera pipeline on mid-range phones.
+      final options = InterpreterOptions()..threads = 1;
       _interpreter = await Interpreter.fromAsset(assetPath, options: options);
       _interpreter!.allocateTensors();
       _inShape = List<int>.from(_interpreter!.getInputTensor(0).shape);
@@ -187,6 +191,9 @@ class YoloM2Interpreter {
   }
 
   _Roi _lowerRoi(img.Image src) {
+    if (lowerRoiFraction >= 0.999) {
+      return _Roi(image: src, offsetY: 0);
+    }
     final h = src.height;
     final y0 = (h * (1.0 - lowerRoiFraction)).floor().clamp(0, h - 1);
     final crop = img.copyCrop(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../data/models/hazard_event.dart';
+import '../../../../data/models/hazard_type.dart';
 
 /// Large transient warning that animates in when a hazard is detected.
 class HazardAlertBanner extends StatelessWidget {
@@ -76,7 +77,7 @@ class _Card extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'CAUTION',
+                  event.type == HazardType.wrongWay ? 'DANGER' : 'CAUTION',
                   style: GoogleFonts.dmSans(
                     color: Colors.white.withValues(alpha: 0.85),
                     fontSize: 11,

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
@@ -14,9 +15,9 @@ import '../../providers/drive_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/trips_provider.dart';
 import '../../widgets/confirm_dialog.dart';
+import 'widgets/drive_alert_card.dart';
 import 'widgets/drive_hud.dart';
 import 'widgets/drive_viewfinder.dart';
-import 'widgets/hazard_alert_banner.dart';
 import 'widgets/trip_summary_sheet.dart';
 
 /// Live drive: camera viewfinder, GPS HUD, spoken hazard / speed alerts.
@@ -44,15 +45,21 @@ class _DriveView extends StatefulWidget {
 
 class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
   Timer? _alertTimer;
-  Timer? _overspeedTimer;
   bool _finishing = false;
   DriveProvider? _drive;
+  static const _alertAutoDismiss = Duration(seconds: 8);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.detector.addListener(_onDetectorTick);
+    // Vertical mount (most car holders). Full-bleed camera still covers the road.
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _begin());
   }
 
@@ -91,20 +98,16 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
       return;
     }
 
-    if (drive.lastAlert != null) {
+    if (drive.activeAlert != null) {
+      final id = drive.activeAlert!.id;
       _alertTimer?.cancel();
-      _alertTimer = Timer(
-        const Duration(milliseconds: 2600),
-        () => _drive?.clearAlert(),
-      );
-    }
-
-    if (drive.showOverspeedBanner) {
-      _overspeedTimer?.cancel();
-      _overspeedTimer = Timer(
-        const Duration(milliseconds: 2800),
-        () => _drive?.clearOverspeedBanner(),
-      );
+      _alertTimer = Timer(_alertAutoDismiss, () {
+        if (_drive?.activeAlert?.id == id) {
+          _drive?.dismissActiveAlert();
+        }
+      });
+    } else {
+      _alertTimer?.cancel();
     }
   }
 
@@ -125,8 +128,11 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     widget.detector.removeListener(_onDetectorTick);
     _alertTimer?.cancel();
-    _overspeedTimer?.cancel();
     _drive?.removeListener(_onDriveChanged);
+    // Rest of app stays portrait.
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]);
     super.dispose();
   }
 
@@ -239,48 +245,21 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
                       hazardCount: drive.hazardCount,
                       usingGps: drive.usingGps,
                       arming: drive.isArming,
-                      onStartNow: drive.isArming
-                          ? () => drive.forceStartTrip()
-                          : null,
+                      onStartNow:
+                          drive.isArming ? () => drive.forceStartTrip() : null,
                     ),
                   ),
                   Expanded(
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (drive.showOverspeedBanner)
-                              const _OverspeedBanner(),
-                            if (drive.showOverspeedBanner &&
-                                drive.lastAlert != null)
-                              const SizedBox(height: 12),
-                            HazardAlertBanner(event: drive.lastAlert),
-                            if (drive.wrongWayConfirmSeconds != null &&
-                                drive.lastAlert?.type !=
-                                    HazardType.wrongWay) ...[
-                              const SizedBox(height: 12),
-                              _WrongWayProgressChip(
-                                seconds: drive.wrongWayConfirmSeconds!,
-                                demo: drive.wrongWayDemoMode,
-                              ),
-                            ],
-                            if (kDebugMode && drive.usingRealtimeModel) ...[
-                              const SizedBox(height: 10),
-                              _AiDebugChip(
-                                label: widget.detector.debugPeakLabel,
-                                score: widget.detector.debugPeakScore,
-                                info: widget.detector.debugInfo,
-                              ),
-                            ],
-                            if (!drive.micGranted) ...[
-                              const SizedBox(height: 16),
-                              const _VisualOnlyChip(),
-                            ],
-                          ],
-                        ),
-                      ),
+                    child: _DriveCenterChips(
+                      drive: drive,
+                      detector: widget.detector,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: DriveAlertToast(
+                      alert: drive.activeAlert,
+                      onDismiss: drive.dismissActiveAlert,
                     ),
                   ),
                   _Controls(
@@ -302,63 +281,42 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
   }
 }
 
-class _OverspeedBanner extends StatelessWidget {
-  const _OverspeedBanner();
+class _DriveCenterChips extends StatelessWidget {
+  const _DriveCenterChips({required this.drive, required this.detector});
+
+  final DriveProvider drive;
+  final CameraYoloHazardDetector detector;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      decoration: BoxDecoration(
-        color: AppColors.alert.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.alert.withValues(alpha: 0.45),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.speed_rounded, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'OVERSPEED',
-                  style: GoogleFonts.dmSans(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.1,
-                  ),
-                ),
-                Text(
-                  'Slow down — over speed limit',
-                  style: GoogleFonts.sora(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return Align(
+      alignment: Alignment.center,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (drive.wrongWayConfirmSeconds != null &&
+                drive.activeAlert?.event?.type != HazardType.wrongWay) ...[
+              _WrongWayProgressChip(
+                seconds: drive.wrongWayConfirmSeconds!,
+                demo: drive.wrongWayDemoMode,
+              ),
+            ],
+            if (kDebugMode && drive.usingRealtimeModel) ...[
+              const SizedBox(height: 10),
+              _AiDebugChip(
+                label: detector.debugPeakLabel,
+                score: detector.debugPeakScore,
+                info: detector.debugInfo,
+              ),
+            ],
+            if (!drive.micGranted) ...[
+              const SizedBox(height: 16),
+              const _VisualOnlyChip(),
+            ],
+          ],
+        ),
       ),
     );
   }
