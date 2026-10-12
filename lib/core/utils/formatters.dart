@@ -36,6 +36,10 @@ abstract final class Format {
   static String monthYear(DateTime date) =>
       '${_months[date.month - 1]} ${date.year}';
 
+  /// e.g. Friday, September 5
+  static String longDate(DateTime date) =>
+      '${_weekdaysLong[date.weekday - 1]}, ${_monthsLong[date.month - 1]} ${date.day}';
+
   /// Weekday initials for the last 7 days, oldest first.
   static List<String> lastSevenDayLabels() {
     final today = DateTime.now();
@@ -60,5 +64,30 @@ abstract final class Format {
     'Dec',
   ];
 
+  static const _monthsLong = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
   static const _weekdays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+  static const _weekdaysLong = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
 }

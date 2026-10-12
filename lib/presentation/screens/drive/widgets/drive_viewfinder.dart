@@ -42,17 +42,23 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
         .toList();
     if (backs.isEmpty) return cameras.first;
 
+    // Lower score wins. Ultra-wide first. Otherwise the lowest camera id:
+    // on Android that is the main rear lens. Higher ids are macro or depth,
+    // which only see a small patch of the scene.
     int score(CameraDescription c) {
       final n = c.name.toLowerCase();
-      if (n.contains('ultra') || n.contains('uw')) return 3;
-      if (n.contains('wide') || n.contains('0.5') || n.contains('0_5')) {
-        return 2;
+      if (n.contains('ultra') || n.contains('uw') || n.contains('0.5')) {
+        return 0;
       }
-      if (n.contains('tele') || n.contains('zoom')) return 0;
-      return 1;
+      if (n.contains('tele') || n.contains('macro') || n.contains('depth')) {
+        return 100;
+      }
+      final id = int.tryParse(c.name);
+      if (id != null) return 10 + id;
+      return 50;
     }
 
-    backs.sort((a, b) => score(b).compareTo(score(a)));
+    backs.sort((a, b) => score(a).compareTo(score(b)));
     return backs.first;
   }
 
@@ -71,11 +77,11 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
         return;
       }
       final back = _pickWidestBackCamera(cameras);
-      // low keeps preview + YOLO responsive. medium made mid-range phones hang
-      // because image-stream frames are huge to convert every inference.
+      // medium is mapped to a 4:3 sensor frame (see the camera plugin).
+      // high / veryHigh force 16:9, which cuts off the sides of the road.
       final controller = CameraController(
         back,
-        ResolutionPreset.low,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -84,14 +90,14 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
         await controller.dispose();
         return;
       }
-      // Widest FOV so more of the road is in frame.
       try {
         final minZoom = await controller.getMinZoomLevel();
         await controller.setZoomLevel(minZoom);
       } catch (_) {}
-      // Locked focus = less AF hunting jank while driving.
+      // Auto focus. Locking immediately froze the lens before it focused,
+      // which left the whole preview soft.
       try {
-        await controller.setFocusMode(FocusMode.locked);
+        await controller.setFocusMode(FocusMode.auto);
         await controller.setExposureMode(ExposureMode.auto);
       } catch (_) {}
       setState(() {
@@ -122,27 +128,11 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
 
     Widget feed;
     if (controller != null && controller.value.isInitialized) {
-      // Portrait phone + wide camera strip (like dashcam apps):
-      // fill width, keep natural aspect → sharp image, black bars top/bottom.
-      // BoxFit.cover on low-res was what made the feed look blurry.
-      final ar = controller.value.aspectRatio;
-      final bandAr = ar >= 1 ? ar : 1 / ar;
       feed = ColoredBox(
         color: Colors.black,
-        child: Center(
-          child: AspectRatio(
-            aspectRatio: bandAr,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CameraPreview(controller),
-                if (widget.boxes.isNotEmpty)
-                  CustomPaint(
-                    painter: _HazardBoxesPainter(widget.boxes),
-                  ),
-              ],
-            ),
-          ),
+        child: _FullBleedPreview(
+          controller: controller,
+          boxes: widget.boxes,
         ),
       );
     } else if (_initializing && !_failed) {
@@ -165,13 +155,43 @@ class _DriveViewfinderState extends State<DriveViewfinder> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               // Light veil only — heavy black made the road look soft/blurry.
-              colors: [Color(0x66000000), Color(0x00000000), Color(0x88000000)],
+              colors: [Color(0x33000000), Color(0x00000000), Color(0x55000000)],
               stops: [0, 0.35, 1],
             ),
           ),
         ),
         if (widget.active) const _ScanLine(),
       ],
+    );
+  }
+}
+
+/// Shows the entire camera frame. The phone is taller than the sensor, so
+/// black bars sit above and below. Filling those bars would crop the road.
+class _FullBleedPreview extends StatelessWidget {
+  const _FullBleedPreview({required this.controller, required this.boxes});
+
+  final CameraController controller;
+  final List<HazardDetection> boxes;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Stack(
+          fit: StackFit.passthrough,
+          children: [
+            CameraPreview(controller),
+            if (boxes.isNotEmpty)
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _HazardBoxesPainter(boxes),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -7,7 +7,6 @@ import '../../../core/constants/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_palette.dart';
 import '../../../data/services/permission_service.dart';
-import '../../widgets/app_card.dart';
 import '../../widgets/brand_buttons.dart';
 import '../../widgets/screen_back_button.dart';
 
@@ -19,39 +18,44 @@ class PermissionsScreen extends StatefulWidget {
 }
 
 class _PermissionsScreenState extends State<PermissionsScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final _service = PermissionService();
   final _status = <AppPermissionKind, PermissionStatus>{};
   bool _busy = false;
+  late final AnimationController _enter;
 
   static const _items = [
     _PermItem(
       kind: AppPermissionKind.camera,
-      icon: Icons.videocam_rounded,
+      icon: Icons.photo_camera_outlined,
       title: 'Camera',
-      why: 'Spot hazards on the road ahead',
+      why: 'Spot hazards on the road ahead.',
       required: true,
+      tint: Color(0xFF0F8A82),
     ),
     _PermItem(
       kind: AppPermissionKind.location,
-      icon: Icons.my_location_rounded,
+      icon: Icons.place_outlined,
       title: 'Location',
-      why: 'Track speed and trip distance',
+      why: 'Track speed and trip distance.',
       required: true,
+      tint: Color(0xFF3B82C4),
     ),
     _PermItem(
       kind: AppPermissionKind.microphone,
-      icon: Icons.mic_rounded,
+      icon: Icons.mic_none_outlined,
       title: 'Microphone',
-      why: 'Voice alert checks',
+      why: 'Voice alert checks.',
       required: false,
+      tint: Color(0xFF7A5AF8),
     ),
     _PermItem(
       kind: AppPermissionKind.notifications,
-      icon: Icons.notifications_active_rounded,
+      icon: Icons.notifications_none_outlined,
       title: 'Notifications',
-      why: 'Alerts when the screen is locked',
+      why: 'Alerts when the screen is locked.',
       required: false,
+      tint: Color(0xFFE8A317),
     ),
   ];
 
@@ -59,12 +63,17 @@ class _PermissionsScreenState extends State<PermissionsScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _enter = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 720),
+    )..forward();
     _refresh();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _enter.dispose();
     super.dispose();
   }
 
@@ -141,62 +150,84 @@ class _PermissionsScreenState extends State<PermissionsScreen>
       backgroundColor: p.background,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          padding: const EdgeInsets.fromLTRB(22, 12, 22, 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const ScreenBackButton(),
+              const SizedBox(height: 8),
               Text(
                 'Permissions',
                 style: GoogleFonts.sora(
                   fontSize: 28,
                   fontWeight: FontWeight.w700,
                   color: p.textPrimary,
+                  letterSpacing: -0.4,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 'RAASTA only asks for what it needs to keep you safe.',
                 style: GoogleFonts.dmSans(
-                  fontSize: 15,
+                  fontSize: 14.5,
                   color: p.textSecondary,
                   height: 1.4,
                 ),
               ),
               if (kIsWeb) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Text(
-                  'Web preview grants these automatically. Real prompts '
-                  'appear on Android.',
-                  style: GoogleFonts.dmSans(fontSize: 13, color: p.brand),
+                  'Web preview grants these automatically. Real prompts appear on Android.',
+                  style: GoogleFonts.dmSans(fontSize: 12.5, color: p.brand),
                 ),
               ],
-              const SizedBox(height: 24),
+              const SizedBox(height: 22),
               Expanded(
                 child: ListView.separated(
                   itemCount: _items.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 12),
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
                   itemBuilder: (context, i) {
                     final item = _items[i];
-                    return _PermCard(
-                      item: item,
-                      status: _status[item.kind],
-                      onAllow: () => _requestOne(item),
+                    final start = 0.08 + i * 0.12;
+                    final fade = CurvedAnimation(
+                      parent: _enter,
+                      curve: Interval(
+                        start.clamp(0.0, 0.85),
+                        (start + 0.35).clamp(0.0, 1.0),
+                        curve: Curves.easeOutCubic,
+                      ),
+                    );
+                    return FadeTransition(
+                      opacity: fade,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, 0.08),
+                          end: Offset.zero,
+                        ).animate(fade),
+                        child: _PermCard(
+                          item: item,
+                          status: _status[item.kind],
+                          onAllow: () => _requestOne(item),
+                        ),
+                      ),
                     );
                   },
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               GradientButton(
                 label: 'Allow access',
                 loading: _busy,
                 onPressed: _allowAll,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               TextButton(
                 onPressed: _busy ? null : _skip,
-                child: const Text('Skip for now'),
+                style: TextButton.styleFrom(foregroundColor: p.brand),
+                child: Text(
+                  'Skip for now',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
+                ),
               ),
             ],
           ),
@@ -222,26 +253,44 @@ class _PermCard extends StatelessWidget {
     final p = context.palette;
     final granted = status?.isGranted ?? false;
 
-    return AppCard(
-      radius: 16,
-      padding: const EdgeInsets.all(16),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+      decoration: BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: granted
+              ? AppColors.safe.withValues(alpha: 0.35)
+              : p.border,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: p.shadow,
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 46,
+            height: 46,
             decoration: BoxDecoration(
               color: granted
                   ? AppColors.safe.withValues(alpha: 0.12)
-                  : p.brandSoft,
-              borderRadius: BorderRadius.circular(12),
+                  : item.tint.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(13),
             ),
             child: Icon(
               item.icon,
-              color: granted ? AppColors.safe : p.brand,
+              size: 22,
+              color: granted ? AppColors.safe : item.tint,
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -254,41 +303,74 @@ class _PermCard extends StatelessWidget {
                         style: GoogleFonts.dmSans(
                           fontWeight: FontWeight.w700,
                           color: p.textPrimary,
-                          fontSize: 15.5,
+                          fontSize: 15,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    StatusPill(
+                    _Badge(
                       label: item.required ? 'Required' : 'Optional',
-                      color: item.required ? p.brand : p.textSecondary,
+                      filled: item.required,
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   item.why,
                   style: GoogleFonts.dmSans(
                     color: p.textSecondary,
-                    fontSize: 13,
+                    fontSize: 12.5,
+                    height: 1.3,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           if (granted)
-            const Icon(Icons.check_circle_rounded, color: AppColors.safe)
+            const Icon(Icons.check_circle_rounded, color: AppColors.safe, size: 24)
           else
             TextButton(
               onPressed: onAllow,
               style: TextButton.styleFrom(
                 foregroundColor: p.brand,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 36),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              child: const Text('Allow'),
+              child: Text(
+                'Allow',
+                style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
+              ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge({required this.label, required this.filled});
+
+  final String label;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: filled ? p.brandSoft : p.surfaceAlt,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.dmSans(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+          color: filled ? p.brand : p.textSecondary,
+        ),
       ),
     );
   }
@@ -301,6 +383,7 @@ class _PermItem {
     required this.title,
     required this.why,
     required this.required,
+    required this.tint,
   });
 
   final AppPermissionKind kind;
@@ -308,4 +391,5 @@ class _PermItem {
   final String title;
   final String why;
   final bool required;
+  final Color tint;
 }

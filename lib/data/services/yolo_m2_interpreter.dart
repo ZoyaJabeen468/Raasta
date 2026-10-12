@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
@@ -7,31 +9,82 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 import '../models/hazard_type.dart';
 import 'hazard_detector.dart';
 
-/// Runs the M2+M5 YOLOv8n TFLite model (11 classes).
-///
-/// Classes: pothole, crack, speed_bump, person, cow, buffalo, dog, cat,
-/// horse, donkey, goat.
-///
-/// Supports:
-/// - Legacy NHWC `[1, H, W, 3]`
-/// - Ultralytics LiteRT NCHW `[1, 3, H, W]`
+class YoloPreProcessResult {
+  const YoloPreProcessResult({
+    required this.flatIn,
+    required this.frameW,
+    required this.frameH,
+    required this.roiOffsetY,
+    required this.gain,
+    required this.padX,
+    required this.padY,
+  });
+  final Float32List flatIn;
+  final int frameW;
+  final int frameH;
+  final int roiOffsetY;
+  final double gain;
+  final double padX;
+  final double padY;
+}
+
+class YoloPostProcessData {
+  const YoloPostProcessData({
+    required this.output,
+    required this.outShape,
+    required this.frameW,
+    required this.frameH,
+    required this.roiOffsetY,
+    required this.gain,
+    required this.padX,
+    required this.padY,
+    required this.inputSize,
+  });
+  final Float32List output;
+  final List<int> outShape;
+  final int frameW;
+  final int frameH;
+  final int roiOffsetY;
+  final double gain;
+  final double padX;
+  final double padY;
+  final int inputSize;
+}
+
+class YoloPostProcessResult {
+  const YoloPostProcessResult({
+    required this.hits,
+    required this.peakScore,
+    required this.peakLabel,
+  });
+  final List<HazardDetection> hits;
+  final double peakScore;
+  final String peakLabel;
+}
+
+class _RawParseResult {
+  const _RawParseResult(this.dets, this.peakScore, this.peakLabel);
+  final List<_Det> dets;
+  final double peakScore;
+  final String peakLabel;
+}
+
 class YoloM2Interpreter {
   YoloM2Interpreter();
 
   static const assetPath = 'assets/models/raasta_m2_m5.tflite';
   static const numClasses = 11;
 
-  /// Phone-demo thresholds. Animals look alike in the model — keep them strict.
-  /// Person is strict too: laptop-screen / room clutter often false-triggers.
-  static const confThreshold = 0.32;
-  static const speedBumpThreshold = 0.42;
-  static const personThreshold = 0.58;
-  static const animalThreshold = 0.68;
+  static const confThreshold = 0.50;
+  static const speedBumpThreshold = 0.55;
+  static const personThreshold = 0.50;
+  static const animalThreshold = 0.72;
   static const iouThreshold = 0.45;
-  /// Keep the lower portion of the frame (road ahead). Top sky / ceiling
-  /// often causes false person/animal hits indoors and on laptop demos.
-  static const lowerRoiFraction = 0.68;
-  static const maxBoxAreaFraction = 0.70;
+
+  /// Full frame. Cropping the top used to shift boxes off the real object.
+  static const lowerRoiFraction = 1.0;
+  static const maxBoxAreaFraction = 0.55;
+  static const minBoxAreaFraction = 0.004;
 
   static bool isAnimal(HazardType type) {
     return type == HazardType.cow ||
@@ -47,7 +100,7 @@ class YoloM2Interpreter {
     if (type == HazardType.speedBump) return speedBumpThreshold;
     if (isAnimal(type)) return animalThreshold;
     if (type == HazardType.person) return personThreshold;
-    return confThreshold; // pothole / crack
+    return confThreshold; 
   }
 
   Interpreter? _interpreter;
@@ -63,22 +116,45 @@ class YoloM2Interpreter {
 
   bool get isReady => _ready;
   int get inputSize => _inputSize;
+  bool get isNchw => _nchw;
+  List<int> get outShape => _outShape;
+
+  IsolateInterpreter? _isolateRunner;
+
+  InterpreterOptions _options() {
+    // Keep creation on the platform thread. A delegate created here and then
+    // invoked from another isolate can abort the process on some phones.
+    return InterpreterOptions()..threads = 2;
+  }
+
+  void _captureShapes() {
+    final interpreter = _interpreter;
+    if (interpreter == null) return;
+    _inShape = List<int>.from(interpreter.getInputTensor(0).shape);
+    _outShape = List<int>.from(interpreter.getOutputTensor(0).shape);
+    _nchw = _inShape.length == 4 && _inShape[1] == 3;
+    if (_nchw) {
+      _inputSize = _inShape[2];
+    } else if (_inShape.length == 4) {
+      _inputSize = _inShape[1];
+    }
+  }
 
   Future<bool> load() async {
     if (_ready) return true;
     if (kIsWeb) return false;
     try {
-      // 1 thread: less CPU fight with the camera pipeline on mid-range phones.
-      final options = InterpreterOptions()..threads = 1;
-      _interpreter = await Interpreter.fromAsset(assetPath, options: options);
+      _interpreter = await Interpreter.fromAsset(assetPath, options: _options());
       _interpreter!.allocateTensors();
-      _inShape = List<int>.from(_interpreter!.getInputTensor(0).shape);
-      _outShape = List<int>.from(_interpreter!.getOutputTensor(0).shape);
-      _nchw = _inShape.length == 4 && _inShape[1] == 3;
-      if (_nchw) {
-        _inputSize = _inShape[2];
-      } else if (_inShape.length == 4) {
-        _inputSize = _inShape[1];
+      _captureShapes();
+      try {
+        _isolateRunner = await IsolateInterpreter.create(
+          address: _interpreter!.address,
+          debugName: 'raasta-yolo',
+        );
+      } catch (e) {
+        debugPrint('YoloM2 background runner unavailable: $e');
+        _isolateRunner = null;
       }
       _ready = true;
       lastDebug =
@@ -94,71 +170,142 @@ class YoloM2Interpreter {
     }
   }
 
-  List<HazardDetection> detect(img.Image rgb) {
-    final interpreter = _interpreter;
-    if (interpreter == null || !_ready) return const [];
-
+  /// Loads a model already read from assets. Safe inside a background isolate,
+  /// where [Interpreter.fromAsset] cannot see the Flutter asset bundle.
+  bool loadFromBytes(Uint8List bytes) {
+    if (_ready) return true;
     try {
-      final roi = _lowerRoi(rgb);
-      final letterboxed = _letterbox(roi.image, _inputSize);
-      final flatIn = _packInput(letterboxed.image);
-
-      final inputNested = flatIn.reshape<double>(_inShape);
-      final outElements = _outShape.fold<int>(1, (a, b) => a * b);
-      final flatOut = List<double>.filled(outElements, 0.0);
-      final outputNested = flatOut.reshape<double>(_outShape);
-
-      interpreter.run(inputNested, outputNested);
-
-      final output = Float32List(outElements);
-      _flattenDoubles(outputNested, output, 0);
-
-      var absSum = 0.0;
-      for (final v in output) {
-        absSum += v.abs();
-      }
-      lastDebug = 'outSum=${absSum.toStringAsFixed(2)} n=${output.length}';
-
-      final raw = _parseYoloOutput(
-        output,
-        gain: letterboxed.gain,
-        padX: letterboxed.padX,
-        padY: letterboxed.padY,
-        roiOffsetY: roi.offsetY,
-        frameW: rgb.width,
-        frameH: rgb.height,
-      );
-      return _nms(
-        raw,
-        frameW: rgb.width.toDouble(),
-        frameH: rgb.height.toDouble(),
-      );
+      _interpreter = Interpreter.fromBuffer(bytes, options: _options());
+      _interpreter!.allocateTensors();
+      _captureShapes();
+      _ready = true;
+      lastDebug =
+          'loaded in=$_inShape out=$_outShape size=$_inputSize '
+          '${_nchw ? "NCHW" : "NHWC"}';
+      debugPrint('YoloM2 $lastDebug');
+      return true;
     } catch (e, st) {
-      lastDebug = 'detect error: $e';
-      debugPrint('YoloM2 detect failed: $e\n$st');
-      return const [];
+      lastDebug = 'load failed: $e';
+      debugPrint('YoloM2Interpreter loadFromBytes failed: $e\n$st');
+      _ready = false;
+      return false;
     }
   }
 
+  Float32List? runModel(Float32List flatIn) {
+    final interpreter = _interpreter;
+    if (interpreter == null || !_ready) return null;
+
+    try {
+      final prepared = _prepareRun(flatIn);
+      interpreter.run(prepared.input, prepared.output);
+      return _finishRun(prepared.output);
+    } catch (e, st) {
+      lastDebug = 'detect error: $e';
+      debugPrint('YoloM2 detect failed: $e\n$st');
+      return null;
+    }
+  }
+
+  /// Runs the network off the UI isolate. The interpreter itself stays the one
+  /// created on the platform thread.
+  Future<Float32List?> runModelAsync(Float32List flatIn) async {
+    final runner = _isolateRunner;
+    if (runner == null || !_ready) return runModel(flatIn);
+    try {
+      final prepared = _prepareRun(flatIn);
+      await runner.run(prepared.input, prepared.output);
+      return _finishRun(prepared.output);
+    } catch (e, st) {
+      lastDebug = 'detect error: $e';
+      debugPrint('YoloM2 async detect failed: $e\n$st');
+      return null;
+    }
+  }
+
+  ({Object input, Object output}) _prepareRun(Float32List flatIn) {
+    final inputNested = flatIn.reshape<double>(_inShape);
+    final outElements = _outShape.fold<int>(1, (a, b) => a * b);
+    final flatOut = List<double>.filled(outElements, 0.0);
+    final outputNested = flatOut.reshape<double>(_outShape);
+    return (input: inputNested, output: outputNested);
+  }
+
+  Float32List _finishRun(Object outputNested) {
+    final outElements = _outShape.fold<int>(1, (a, b) => a * b);
+    final output = Float32List(outElements);
+    _flattenDoubles(outputNested, output, 0);
+    var absSum = 0.0;
+    for (final v in output) {
+      absSum += v.abs();
+    }
+    lastDebug = 'outSum=${absSum.toStringAsFixed(2)} n=${output.length}';
+    return output;
+  }
+
   void close() {
+    final runner = _isolateRunner;
+    _isolateRunner = null;
+    if (runner != null) {
+      unawaited(runner.close());
+    }
     _interpreter?.close();
     _interpreter = null;
     _ready = false;
   }
 
-  Float32List _packInput(img.Image image) {
-    final size = _inputSize;
+  static YoloPreProcessResult preprocessStatic(img.Image rgb, int inputSize, bool isNchw) {
+    final roi = _lowerRoi(rgb);
+    final letterboxed = _letterbox(roi.image, inputSize);
+    final flatIn = _packInput(letterboxed.image, inputSize, isNchw);
+
+    return YoloPreProcessResult(
+      flatIn: flatIn,
+      frameW: rgb.width,
+      frameH: rgb.height,
+      roiOffsetY: roi.offsetY,
+      gain: letterboxed.gain,
+      padX: letterboxed.padX,
+      padY: letterboxed.padY,
+    );
+  }
+
+  static YoloPostProcessResult postprocessStatic(YoloPostProcessData data) {
+    final raw = _parseYoloOutput(
+      data.output,
+      outShape: data.outShape,
+      inputSize: data.inputSize,
+      gain: data.gain,
+      padX: data.padX,
+      padY: data.padY,
+      roiOffsetY: data.roiOffsetY,
+      frameW: data.frameW,
+      frameH: data.frameH,
+    );
+    final hits = _nms(
+      raw.dets,
+      frameW: data.frameW.toDouble(),
+      frameH: data.frameH.toDouble(),
+    );
+    return YoloPostProcessResult(
+      hits: hits,
+      peakScore: raw.peakScore,
+      peakLabel: raw.peakLabel,
+    );
+  }
+
+  static Float32List _packInput(img.Image image, int size, bool isNchw) {
     final floats = Float32List(1 * 3 * size * size);
-    if (_nchw) {
+    if (isNchw) {
       var ri = 0;
       var gi = size * size;
       var bi = 2 * size * size;
       for (var y = 0; y < size; y++) {
         for (var x = 0; x < size; x++) {
           final p = image.getPixel(x, y);
-          floats[ri++] = p.r / 255.0;
-          floats[gi++] = p.g / 255.0;
-          floats[bi++] = p.b / 255.0;
+          floats[ri++] = (p.r as num) / 255.0;
+          floats[gi++] = (p.g as num) / 255.0;
+          floats[bi++] = (p.b as num) / 255.0;
         }
       }
     } else {
@@ -166,16 +313,16 @@ class YoloM2Interpreter {
       for (var y = 0; y < size; y++) {
         for (var x = 0; x < size; x++) {
           final p = image.getPixel(x, y);
-          floats[i++] = p.r / 255.0;
-          floats[i++] = p.g / 255.0;
-          floats[i++] = p.b / 255.0;
+          floats[i++] = (p.r as num) / 255.0;
+          floats[i++] = (p.g as num) / 255.0;
+          floats[i++] = (p.b as num) / 255.0;
         }
       }
     }
     return floats;
   }
 
-  int _flattenDoubles(dynamic node, Float32List out, int index) {
+  static int _flattenDoubles(dynamic node, Float32List out, int index) {
     if (node is num) {
       out[index] = node.toDouble();
       return index + 1;
@@ -190,7 +337,7 @@ class YoloM2Interpreter {
     return index;
   }
 
-  _Roi _lowerRoi(img.Image src) {
+  static _Roi _lowerRoi(img.Image src) {
     if (lowerRoiFraction >= 0.999) {
       return _Roi(image: src, offsetY: 0);
     }
@@ -206,7 +353,7 @@ class YoloM2Interpreter {
     return _Roi(image: crop, offsetY: y0);
   }
 
-  _Letterbox _letterbox(img.Image src, int size) {
+  static _Letterbox _letterbox(img.Image src, int size) {
     final scale = math.min(size / src.width, size / src.height);
     final nw = (src.width * scale).round().clamp(1, size);
     final nh = (src.height * scale).round().clamp(1, size);
@@ -229,8 +376,10 @@ class YoloM2Interpreter {
     );
   }
 
-  List<_Det> _parseYoloOutput(
+  static _RawParseResult _parseYoloOutput(
     Float32List output, {
+    required List<int> outShape,
+    required int inputSize,
     required double gain,
     required double padX,
     required double padY,
@@ -238,21 +387,22 @@ class YoloM2Interpreter {
     required int frameW,
     required int frameH,
   }) {
-    if (_outShape.length < 3) {
-      lastDebug = 'bad out shape $_outShape';
-      return const [];
+    if (outShape.length < 3) {
+      return const _RawParseResult([], 0, '-');
     }
 
-    final d1 = _outShape[1];
-    final d2 = _outShape[2];
-    final channelsFirst = d1 == 4 + numClasses;
+    final d1 = outShape[1];
+    final d2 = outShape[2];
+    final currentChannels = 4 + numClasses;
+    const legacyChannels = 12;
+    final channelsFirst = d1 == currentChannels || d1 == legacyChannels;
+    final channelsLast = d2 == currentChannels || d2 == legacyChannels;
+    if (!channelsFirst && !channelsLast) {
+      return const _RawParseResult([], 0, '-');
+    }
     final channels = channelsFirst ? d1 : d2;
     final anchors = channelsFirst ? d2 : d1;
-
-    if (channels != 4 + numClasses) {
-      lastDebug = 'bad channels=$channels shape=$_outShape';
-      return const [];
-    }
+    final classCount = channels - 4;
 
     double at(int c, int a) {
       final index = channelsFirst ? (c * anchors + a) : (a * channels + c);
@@ -266,8 +416,8 @@ class YoloM2Interpreter {
     for (var i = 0; i < anchors; i++) {
       var bestCls = 0;
       var bestScore = -1.0;
-      for (var c = 0; c < numClasses; c++) {
-        final s = at(4 + c, i);
+      for (var c = 0; c < classCount; c++) {
+        final s = _probability(at(4 + c, i));
         if (s > bestScore) {
           bestScore = s;
           bestCls = c;
@@ -285,10 +435,10 @@ class YoloM2Interpreter {
       var h = at(3, i);
 
       if (cx <= 1.5 && cy <= 1.5 && w <= 1.5 && h <= 1.5) {
-        cx *= _inputSize;
-        cy *= _inputSize;
-        w *= _inputSize;
-        h *= _inputSize;
+        cx *= inputSize;
+        cy *= inputSize;
+        w *= inputSize;
+        h *= inputSize;
       }
 
       var x1 = (cx - w / 2 - padX) / gain;
@@ -298,20 +448,32 @@ class YoloM2Interpreter {
       y1 += roiOffsetY;
       y2 += roiOffsetY;
 
-      x1 = x1.clamp(0, frameW - 1.0);
-      x2 = x2.clamp(0, frameW - 1.0);
-      y1 = y1.clamp(0, frameH - 1.0);
-      y2 = y2.clamp(0, frameH - 1.0);
+      x1 = x1.clamp(0.0, frameW - 1.0);
+      x2 = x2.clamp(0.0, frameW - 1.0);
+      y1 = y1.clamp(0.0, frameH - 1.0);
+      y2 = y2.clamp(0.0, frameH - 1.0);
       if (x2 - x1 < 2 || y2 - y1 < 2) continue;
 
-      final type = HazardType.fromClassId(bestCls);
+      final type = _typeForClass(bestCls, classCount);
+      if (type == null) continue;
       if (bestScore < thresholdFor(type)) continue;
 
       final boxArea = (x2 - x1) * (y2 - y1);
       final frameArea = frameW * frameH;
-      if (frameArea > 0 && boxArea / frameArea > maxBoxAreaFraction) {
+      if (frameArea <= 0) continue;
+      final areaFrac = boxArea / frameArea;
+      if (areaFrac > maxBoxAreaFraction || areaFrac < minBoxAreaFraction) {
         continue;
       }
+
+      // Road damage on the sky/ceiling is a false positive. People and
+      // animals can stand higher, but not in the top strip of the frame.
+      final centerY = ((y1 + y2) / 2) / frameH;
+      final road = type == HazardType.pothole ||
+          type == HazardType.crack ||
+          type == HazardType.speedBump;
+      if (road && centerY < 0.38) continue;
+      if (!road && centerY < 0.08) continue;
 
       dets.add(
         _Det(
@@ -325,14 +487,54 @@ class YoloM2Interpreter {
       );
     }
 
-    lastPeakScore = peak;
-    lastPeakLabel = (peakCls >= 0 && peakCls < HazardType.classLabels.length)
-        ? HazardType.classLabels[peakCls]
-        : '-';
-    return dets;
+    final peakType = peakCls >= 0 ? _typeForClass(peakCls, classCount) : null;
+    return _RawParseResult(dets, peak, peakType?.name ?? '-');
   }
 
-  List<HazardDetection> _nms(
+  /// Class scores are probabilities in [0, 1]. Some exports emit logits.
+  static double _probability(double raw) {
+    if (raw.isNaN) return 0;
+    if (raw >= 0 && raw <= 1) return raw;
+    final x = raw.clamp(-12.0, 12.0);
+    return 1 / (1 + math.exp(-x));
+  }
+
+  /// Current 11-class model, or the older 8-class export.
+  /// Unknown ids are dropped so they are not reported as potholes.
+  static HazardType? _typeForClass(int id, int classCount) {
+    if (classCount == 11) {
+      return switch (id) {
+        0 => HazardType.pothole,
+        1 => HazardType.crack,
+        2 => HazardType.speedBump,
+        3 => HazardType.person,
+        4 => HazardType.cow,
+        5 => HazardType.buffalo,
+        6 => HazardType.dog,
+        7 => HazardType.cat,
+        8 => HazardType.horse,
+        9 => HazardType.donkey,
+        10 => HazardType.goat,
+        _ => null,
+      };
+    }
+    if (classCount == 8) {
+      return switch (id) {
+        0 => HazardType.pothole,
+        1 => HazardType.crack,
+        2 => HazardType.speedBump,
+        3 => HazardType.person,
+        4 => HazardType.cow,
+        5 => HazardType.dog,
+        6 => HazardType.goat,
+        7 => HazardType.horse,
+        _ => null,
+      };
+    }
+    return null;
+  }
+
+  static List<HazardDetection> _nms(
     List<_Det> dets, {
     required double frameW,
     required double frameH,
@@ -345,7 +547,6 @@ class YoloM2Interpreter {
       kept.add(dets[i]);
       for (var j = i + 1; j < dets.length; j++) {
         if (suppressed[j]) continue;
-        if (dets[i].type != dets[j].type) continue;
         if (_iou(dets[i], dets[j]) > iouThreshold) suppressed[j] = true;
       }
     }
@@ -363,20 +564,17 @@ class YoloM2Interpreter {
     ];
   }
 
-  double _estimateDistanceMeters(_Det d, double frameW, double frameH) {
+  static double _estimateDistanceMeters(_Det d, double frameW, double frameH) {
     final boxW = math.max(1.0, d.x2 - d.x1);
     final boxH = math.max(1.0, d.y2 - d.y1);
     final areaFrac = (boxW * boxH) / math.max(1.0, frameW * frameH);
     final cy = ((d.y1 + d.y2) / 2).clamp(0.0, frameH);
     final yNorm = frameH <= 0 ? 0.5 : cy / frameH;
 
-    // Road-damage photos on a laptop fill the frame but mean "ahead", not
-    // "under the bumper". Prefer a driver-style distance band for demos.
     final isRoadSurface = d.type == HazardType.pothole ||
         d.type == HazardType.crack ||
         d.type == HazardType.speedBump;
     if (isRoadSurface && areaFrac > 0.10) {
-      // Large on-screen hazard → still announce as ahead (FYP demo friendly).
       return 80;
     }
 
@@ -406,7 +604,7 @@ class YoloM2Interpreter {
     return ((meters / 10).round() * 10).toDouble();
   }
 
-  double _iou(_Det a, _Det b) {
+  static double _iou(_Det a, _Det b) {
     final x1 = math.max(a.x1, b.x1);
     final y1 = math.max(a.y1, b.y1);
     final x2 = math.min(a.x2, b.x2);

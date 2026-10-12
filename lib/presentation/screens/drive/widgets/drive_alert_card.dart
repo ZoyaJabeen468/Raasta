@@ -23,111 +23,86 @@ class DriveAlertCard extends StatelessWidget {
       color: Colors.transparent,
       child: Container(
         width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
         decoration: BoxDecoration(
-          color: const Color(0xF0101418),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: tint.withValues(alpha: 0.75), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: tint.withValues(alpha: 0.35),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
+          color: const Color(0xF012171C),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: tint.withValues(alpha: 0.55)),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
-              child: Row(
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: tint.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: tint.withValues(alpha: 0.35)),
+              ),
+              child: Icon(alert.icon, color: tint, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: tint.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(alert.icon, color: Colors.white, size: 26),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          alert.severityLabel,
-                          style: GoogleFonts.dmSans(
-                            color: tint,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.1,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          alert.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.sora(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                            height: 1.15,
-                          ),
-                        ),
-                        if (meta != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            meta,
-                            style: GoogleFonts.dmSans(
-                              color: Colors.white60,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 6),
-                        Text(
-                          alert.subtitle,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.dmSans(
-                            color: Colors.white.withValues(alpha: 0.92),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            height: 1.3,
-                          ),
-                        ),
-                      ],
+                  Text(
+                    alert.severityLabel,
+                    style: GoogleFonts.dmSans(
+                      color: tint,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.9,
                     ),
                   ),
-                  Semantics(
-                    button: true,
-                    label: 'Dismiss alert',
-                    child: IconButton(
-                      onPressed: onDismiss,
-                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                      iconSize: 22,
-                      padding: const EdgeInsets.all(10),
-                      constraints: const BoxConstraints(
-                        minWidth: 44,
-                        minHeight: 44,
+                  const SizedBox(height: 2),
+                  Text(
+                    alert.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.sora(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      height: 1.15,
+                    ),
+                  ),
+                  if (meta != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      meta,
+                      style: GoogleFonts.dmSans(
+                        color: Colors.white54,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
                       ),
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  Text(
+                    alert.subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.dmSans(
+                      color: Colors.white.withValues(alpha: 0.88),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      height: 1.3,
                     ),
                   ),
                 ],
               ),
             ),
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(18),
-              ),
-              child: Container(
-                height: 3,
-                color: tint.withValues(alpha: 0.85),
+            Semantics(
+              button: true,
+              label: 'Dismiss alert',
+              child: IconButton(
+                onPressed: onDismiss,
+                icon: const Icon(Icons.close_rounded, color: Colors.white60),
+                iconSize: 20,
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
               ),
             ),
           ],
@@ -151,14 +126,16 @@ class DriveAlertToast extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 280),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       transitionBuilder: (child, animation) {
         final slide = Tween<Offset>(
-          begin: const Offset(0, 0.35),
+          begin: const Offset(0, 0.28),
           end: Offset.zero,
-        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+        ).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        );
         return SlideTransition(
           position: slide,
           child: FadeTransition(opacity: animation, child: child),

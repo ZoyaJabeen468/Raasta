@@ -8,6 +8,13 @@ abstract final class Validators {
     return null;
   }
 
+  /// Required password for sign-in (strength rules apply at sign-up).
+  static String? loginPassword(String? value) {
+    final v = value ?? '';
+    if (v.isEmpty) return 'Password is required';
+    return null;
+  }
+
   /// Strong password for sign-up / change-password.
   /// At least 8 chars, upper, lower, digit, special.
   static String? password(String? value) {

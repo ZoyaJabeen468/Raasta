@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 /// Brand colours are constant across themes; surface/text tokens live in
 /// [AppPalette] so they can flip with the active brightness.
 abstract final class AppColors {
-  static const Color tealDeep = Color(0xFF0A6B64);
+  static const Color tealDeep = Color(0xFF0B5E57);
   static const Color teal = Color(0xFF129188);
   static const Color tealBright = Color(0xFF1AA89E);
   static const Color tealSoft = Color(0xFFE6F5F3);
@@ -34,7 +34,7 @@ abstract final class AppColors {
   static const LinearGradient splashGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [Color(0xFF0D7A72), Color(0xFF14A39A), Color(0xFF1BB8AD)],
+    colors: [Color(0xFF0B5E57), Color(0xFF0D7A72), Color(0xFF129188)],
   );
 
   static const LinearGradient driveGradient = LinearGradient(

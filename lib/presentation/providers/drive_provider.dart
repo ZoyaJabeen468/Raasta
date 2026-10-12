@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/utils/speed_band.dart';
 import '../../data/models/hazard_event.dart';
@@ -11,7 +12,6 @@ import '../../data/models/trip_record.dart';
 import '../../data/services/camera_yolo_detector.dart';
 import '../../data/services/gps_service.dart';
 import '../../data/services/hazard_detector.dart';
-import '../../data/services/permission_service.dart';
 import '../../data/services/tts_service.dart';
 import '../../data/services/wrong_way_service.dart';
 import '../screens/drive/models/drive_alert.dart';
@@ -38,20 +38,17 @@ class DriveProvider extends ChangeNotifier {
     HazardDetector? detector,
     TtsService? tts,
     GpsService? gps,
-    PermissionService? permissions,
     WrongWayService? wrongWay,
     Random? random,
   }) : _detector = detector ?? SimulatedHazardDetector(),
        _tts = tts ?? TtsService(),
        _gps = gps ?? GpsService(),
-       _permissions = permissions ?? PermissionService(),
        _wrongWay = wrongWay ?? WrongWayService(),
        _random = random ?? Random();
 
   final HazardDetector _detector;
   final TtsService _tts;
   final GpsService _gps;
-  final PermissionService _permissions;
   final WrongWayService _wrongWay;
   final Random _random;
 
@@ -88,9 +85,11 @@ class DriveProvider extends ChangeNotifier {
   int _overspeedCount = 0;
   bool _wasOverspeed = false;
   bool _usingGps = false;
-  bool _micGranted = true;
   bool _settingsVoicePreferred = true;
+  bool _hazardAlerts = true;
   bool _wrongWayDemo = false;
+  bool _pausedBySystem = false;
+  DriveStatus? _resumeStatus;
   double? _lastHeadingDegrees;
   bool _lastHeadingAccurate = false;
 
@@ -113,7 +112,7 @@ class DriveProvider extends ChangeNotifier {
   int get overspeedCount => _overspeedCount;
   bool get isOverspeed => _speedKph > speedLimitKph;
   bool get usingGps => _usingGps;
-  bool get micGranted => _micGranted;
+  bool get hazardAlertsEnabled => _hazardAlerts;
   DriveAlert? get activeAlert => _activeAlert;
   bool get wrongWayDemoMode => _wrongWayDemo;
   /// Seconds into M6 confirm window (demo or real), for HUD progress.
@@ -126,40 +125,88 @@ class DriveProvider extends ChangeNotifier {
   Map<HazardType, int> get counts => Map.unmodifiable(_counts);
   int get hazardCount => _events.length;
 
-  /// Effective voice: settings + mic permission (FE-6) + in-session mute.
-  bool get voiceEnabled => _settingsVoicePreferred && _micGranted;
+  /// Spoken alerts follow the voice setting and the in-session mute.
+  /// Text-to-speech does not need the microphone.
+  bool get voiceEnabled => _settingsVoicePreferred;
 
   SpeedBand get speedBand => SpeedBand.from(
         speedKph: _speedKph,
         limitKph: speedLimitKph.toDouble(),
       );
 
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final background = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
+    if (background) {
+      if (_status == DriveStatus.running || _status == DriveStatus.arming) {
+        _resumeStatus = _status;
+        _pausedBySystem = true;
+        _status = DriveStatus.paused;
+        _stationarySince = null;
+        _updateWakelock();
+        notifyListeners();
+        unawaited(_suspendSensors());
+      } else if (_status == DriveStatus.paused) {
+        unawaited(_suspendSensors());
+      }
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed &&
+        _pausedBySystem &&
+        _status == DriveStatus.paused) {
+      _pausedBySystem = false;
+      _status = _resumeStatus ?? DriveStatus.running;
+      _resumeStatus = null;
+      _updateWakelock();
+      notifyListeners();
+      unawaited(_resumeSensors());
+    }
+  }
+
+  void _updateWakelock() {
+    final hold =
+        _status == DriveStatus.running || _status == DriveStatus.arming;
+    if (hold) {
+      unawaited(WakelockPlus.enable());
+    } else {
+      unawaited(WakelockPlus.disable());
+    }
+  }
+
+  Future<void> _suspendSensors() async {
+    await _detector.pauseCapture();
+    if (_usingGps) await _gps.stop();
+  }
+
+  Future<void> _resumeSensors() async {
+    if (_status != DriveStatus.running && _status != DriveStatus.arming) {
+      return;
+    }
+    await _detector.resumeCapture();
+    if (!_usingGps || _gps.isActive) return;
+    final ok = await _gps.start();
+    if (!ok || _gpsSub != null) return;
+    _gpsSub = _gps.samples.listen(_onGpsSample);
+  }
+
   Future<void> configure({
     required LanguagePreference language,
     required bool voiceEnabled,
+    bool hazardAlerts = true,
     bool wrongWayDemoMode = false,
   }) async {
     _language = language;
     _settingsVoicePreferred = voiceEnabled;
+    _hazardAlerts = hazardAlerts;
     _wrongWayDemo = wrongWayDemoMode;
     _wrongWay.demoForceConflict = wrongWayDemoMode;
-    _micGranted = await _permissions.isMicrophoneGranted();
-    notifyListeners();
-  }
-
-  /// Re-check mic (e.g. after returning from system settings).
-  Future<void> refreshMicrophonePermission() async {
-    final granted = await _permissions.isMicrophoneGranted();
-    if (granted == _micGranted) return;
-    _micGranted = granted;
-    if (!_micGranted) await _tts.stop();
     notifyListeners();
   }
 
   /// Mutes or unmutes spoken alerts for the current session only.
-  /// No-op when microphone is denied (FE-6 forces visual-only).
   void toggleVoice() {
-    if (!_micGranted) return;
     _settingsVoicePreferred = !_settingsVoicePreferred;
     if (!voiceEnabled) _tts.stop();
     notifyListeners();
@@ -171,30 +218,31 @@ class DriveProvider extends ChangeNotifier {
     }
 
     _resetState();
-    _micGranted = await _permissions.isMicrophoneGranted();
 
     _usingGps = await _gps.start();
     if (_usingGps) {
       _gpsSub = _gps.samples.listen(_onGpsSample);
-      _status = DriveStatus.arming;
-      notifyListeners();
-      // Start AI immediately so hazards work while standing still (demos / traffic lights).
-      await _ensureDetectorListening();
     } else {
       // Simulation: start rolling so Chrome / denied-GPS demos still work.
       _speedKph = 18 + _random.nextDouble() * 12;
-      await _beginActiveTrip();
     }
 
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    // Opening Drive is the start. Don't wait for a second tap or for
+    // speed to climb past the old arming threshold.
+    await _ensureDetectorListening();
+    await _beginActiveTrip(alreadyDetecting: true);
 
-    // M6 demo: auto-start trip so wrong-way timer runs without GPS speed.
-    if (_wrongWayDemo && _status == DriveStatus.arming) {
-      Future<void>.delayed(const Duration(seconds: 2), () {
-        if (_status == DriveStatus.arming) {
-          unawaited(forceStartTrip());
-        }
-      });
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    _pauseIfAlreadyBackgrounded();
+  }
+
+  /// Covers a background transition that arrived before [start] finished.
+  void _pauseIfAlreadyBackgrounded() {
+    final state = WidgetsBinding.instance.lifecycleState;
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      didChangeAppLifecycleState(state!);
     }
   }
 
@@ -217,6 +265,7 @@ class DriveProvider extends ChangeNotifier {
     _status = DriveStatus.running;
     _startedAt = DateTime.now();
     _stationarySince = null;
+    _updateWakelock();
     notifyListeners();
 
     if (!alreadyDetecting) {
@@ -226,12 +275,21 @@ class DriveProvider extends ChangeNotifier {
 
   void togglePause() {
     if (_status == DriveStatus.running) {
+      _pausedBySystem = false;
+      _resumeStatus = null;
       _status = DriveStatus.paused;
       _stationarySince = null;
+      _updateWakelock();
+      notifyListeners();
+      unawaited(_suspendSensors());
     } else if (_status == DriveStatus.paused) {
-      _status = DriveStatus.running;
+      _pausedBySystem = false;
+      _status = _resumeStatus ?? DriveStatus.running;
+      _resumeStatus = null;
+      _updateWakelock();
+      notifyListeners();
+      unawaited(_resumeSensors());
     }
-    notifyListeners();
   }
 
   /// Ends the drive and returns the recorded trip, or null if nothing usable
@@ -241,6 +299,7 @@ class DriveProvider extends ChangeNotifier {
 
     final wasArming = _status == DriveStatus.arming;
     _status = DriveStatus.finished;
+    _updateWakelock();
     await _tearDownSensors();
     await _tts.stop();
     notifyListeners();
@@ -248,6 +307,9 @@ class DriveProvider extends ChangeNotifier {
     if (wasArming || (_elapsedSeconds < 2 && _events.isEmpty)) {
       return null;
     }
+
+    // Fallback hazards are scripted. They must not show up as a real trip.
+    if (!usingRealtimeModel) return null;
 
     return TripRecord(
       id: (_startedAt ?? DateTime.now()).microsecondsSinceEpoch.toString(),
@@ -308,6 +370,9 @@ class DriveProvider extends ChangeNotifier {
   void reset() {
     _resetState();
     _status = DriveStatus.idle;
+    _pausedBySystem = false;
+    _resumeStatus = null;
+    _updateWakelock();
     notifyListeners();
   }
 
@@ -327,6 +392,8 @@ class DriveProvider extends ChangeNotifier {
     _lastOverspeedVoiceAt = null;
     _stationarySince = null;
     _usingGps = false;
+    _pausedBySystem = false;
+    _resumeStatus = null;
     _lastHeadingDegrees = null;
     _lastHeadingAccurate = false;
     _wrongWay.reset();
@@ -365,11 +432,11 @@ class DriveProvider extends ChangeNotifier {
     _elapsedSeconds++;
 
     if (!_usingGps) {
-      // Smooth random walk around city speeds for non-GPS demos.
-      final drift = (_random.nextDouble() - 0.45) * 12;
-      _speedKph = (_speedKph + drift).clamp(0, 85);
+      // Indoor tests have no GPS. Keep speed under the 60 km/h limit so
+      // overspeed banners do not fire while you point the camera at a screen.
+      final drift = (_random.nextDouble() - 0.5) * 4;
+      _speedKph = (_speedKph + drift).clamp(28, 48);
       if (_speedKph > _maxSpeedKph) _maxSpeedKph = _speedKph;
-      _handleOverspeedLogic();
     }
 
     // Integrate distance for this 1-second slice.
@@ -414,15 +481,18 @@ class DriveProvider extends ChangeNotifier {
     );
     _events.add(event);
     _counts[HazardType.wrongWay] = (_counts[HazardType.wrongWay] ?? 0) + 1;
-    _enqueueAlert(DriveAlert.hazard(event));
     _wrongWayConfirmSeconds = null;
 
+    if (!_hazardAlerts) return;
+
+    _enqueueAlert(DriveAlert.hazard(event));
     if (voiceEnabled) {
       unawaited(_tts.announceHazard(HazardType.wrongWay, _language));
     }
   }
 
   void _handleOverspeedLogic() {
+    if (!_usingGps) return;
     final over = _speedKph > speedLimitKph;
     if (over && !_wasOverspeed) {
       _overspeedCount++;
@@ -495,6 +565,7 @@ class DriveProvider extends ChangeNotifier {
       _status = DriveStatus.running;
       _startedAt = DateTime.now();
       _stationarySince = null;
+      _updateWakelock();
     }
 
     final event = HazardEvent(
@@ -506,6 +577,12 @@ class DriveProvider extends ChangeNotifier {
     );
     _events.add(event);
     _counts[detection.type] = (_counts[detection.type] ?? 0) + 1;
+
+    if (!_hazardAlerts) {
+      notifyListeners();
+      return;
+    }
+
     _enqueueAlert(DriveAlert.hazard(event));
 
     if (voiceEnabled) {
@@ -528,6 +605,7 @@ class DriveProvider extends ChangeNotifier {
     _detector.dispose();
     _gps.dispose();
     _tts.stop();
+    unawaited(WakelockPlus.disable());
     super.dispose();
   }
 }

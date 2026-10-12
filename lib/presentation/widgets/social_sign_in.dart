@@ -4,11 +4,12 @@ import 'package:provider/provider.dart';
 import '../../core/navigation/auth_navigator.dart';
 import '../../data/services/auth_service.dart';
 import '../providers/auth_provider.dart';
+import 'auth_shell.dart';
 import 'brand_buttons.dart';
 
-/// The "Continue with …" block shared by welcome, login and signup.
+/// Google-only social block for secondary auth flows.
 class SocialSignIn extends StatefulWidget {
-  const SocialSignIn({super.key, this.dividerLabel = 'or continue with email'});
+  const SocialSignIn({super.key, this.dividerLabel = 'Or'});
 
   final String dividerLabel;
 
@@ -17,16 +18,16 @@ class SocialSignIn extends StatefulWidget {
 }
 
 class _SocialSignInState extends State<SocialSignIn> {
-  SocialProvider? _pending;
+  bool _pending = false;
 
-  Future<void> _go(SocialProvider provider) async {
-    setState(() => _pending = provider);
+  Future<void> _go() async {
+    setState(() => _pending = true);
 
     final auth = context.read<AuthProvider>();
-    final ok = await auth.signInWithProvider(provider);
+    final ok = await auth.signInWithProvider(SocialProvider.google);
 
     if (!mounted) return;
-    setState(() => _pending = null);
+    setState(() => _pending = false);
 
     if (ok) {
       await AuthNavigator.afterAuth(
@@ -43,35 +44,16 @@ class _SocialSignInState extends State<SocialSignIn> {
 
   @override
   Widget build(BuildContext context) {
-    final busy = _pending != null;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: SocialButton(
-                label: 'Google',
-                glyph: const GoogleGlyph(),
-                loading: _pending == SocialProvider.google,
-                onPressed: busy ? null : () => _go(SocialProvider.google),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: SocialButton(
-                label: 'Facebook',
-                glyph: const FacebookGlyph(),
-                loading: _pending == SocialProvider.facebook,
-                onPressed: busy ? null : () => _go(SocialProvider.facebook),
-              ),
-            ),
-          ],
+        GoogleSignInButton(
+          loading: _pending,
+          onPressed: _pending ? null : _go,
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         LabelledDivider(label: widget.dividerLabel),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
       ],
     );
   }

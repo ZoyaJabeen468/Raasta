@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
@@ -7,8 +9,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/raasta_logo.dart';
 import '../providers/auth_provider.dart';
 
-/// Brand splash. Holds briefly so the first open feels calm,
-/// then fades into the next screen (no hard cut).
+/// Brand splash. Logo, then wordmark, then tagline. No loader bar.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -20,69 +21,75 @@ class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
   late final AnimationController _enter;
   late final AnimationController _exit;
-  late final AnimationController _road;
-  late final Animation<double> _logoFade;
   late final Animation<double> _logoScale;
-  late final Animation<double> _textFade;
-  late final Animation<Offset> _textSlide;
+  late final Animation<double> _wordFade;
+  late final Animation<Offset> _wordSlide;
+  late final Animation<double> _tagFade;
+  late final Animation<Offset> _tagSlide;
 
-  String _status = 'Starting up';
   bool _failed = false;
 
-  /// Full brand hold on a cold open.
-  static const _minSplash = Duration(milliseconds: 2800);
-
-  /// Shorter when a session is already restored.
-  static const _minReadySplash = Duration(milliseconds: 1400);
+  static const _minSplash = Duration(milliseconds: 4600);
+  static const _minReadySplash = Duration(milliseconds: 3600);
+  static const _maxColdSplash = Duration(milliseconds: 5600);
 
   @override
   void initState() {
     super.initState();
 
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Color(0xFF0B5E57),
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+    );
+
     _enter = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1600),
+      duration: const Duration(milliseconds: 2400),
     );
     _exit = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 380),
     );
-    _road = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    )..repeat();
 
-    _logoFade = CurvedAnimation(
-      parent: _enter,
-      curve: const Interval(0, 0.55, curve: Curves.easeOut),
-    );
-    _logoScale = Tween<double>(begin: 0.82, end: 1).animate(
+    _logoScale = Tween<double>(begin: 0.96, end: 1).animate(
       CurvedAnimation(
         parent: _enter,
-        curve: const Interval(0, 0.65, curve: Curves.easeOutBack),
+        curve: const Interval(0, 0.28, curve: Curves.easeOutCubic),
       ),
     );
-    _textFade = CurvedAnimation(
+    _wordFade = CurvedAnimation(
       parent: _enter,
-      curve: const Interval(0.35, 1, curve: Curves.easeOut),
+      curve: const Interval(0.18, 0.46, curve: Curves.easeOut),
     );
-    _textSlide =
-        Tween<Offset>(
-          begin: const Offset(0, 0.35),
-          end: Offset.zero,
-        ).animate(
-          CurvedAnimation(
-            parent: _enter,
-            curve: const Interval(0.35, 1, curve: Curves.easeOutCubic),
-          ),
-        );
+    _wordSlide = Tween<Offset>(
+      begin: const Offset(0, 0.22),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _enter,
+        curve: const Interval(0.18, 0.46, curve: Curves.easeOutCubic),
+      ),
+    );
+    _tagFade = CurvedAnimation(
+      parent: _enter,
+      curve: const Interval(0.48, 0.82, curve: Curves.easeOut),
+    );
+    _tagSlide = Tween<Offset>(
+      begin: const Offset(0, 0.35),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _enter,
+        curve: const Interval(0.48, 0.82, curve: Curves.easeOutCubic),
+      ),
+    );
 
     _enter.forward();
     WidgetsBinding.instance.addPostFrameCallback((_) => _boot());
-  }
-
-  void _setStatus(String value) {
-    if (mounted) setState(() => _status = value);
   }
 
   Future<void> _boot() async {
@@ -91,26 +98,36 @@ class _SplashScreenState extends State<SplashScreen>
     final started = DateTime.now();
 
     try {
-      _setStatus('Loading…');
       await auth.bootstrap();
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _failed = true;
-        _status = 'Could not start';
-      });
+      setState(() => _failed = true);
       return;
     }
 
+    final bootstrapMs = DateTime.now().difference(started).inMilliseconds;
     final alreadyReady = auth.isLoggedIn || !auth.isBooting;
-    final hold = alreadyReady && auth.isLoggedIn
-        ? _minReadySplash
-        : _minSplash;
+    final isWarm = alreadyReady && auth.isLoggedIn;
+    var hold = isWarm ? _minReadySplash : _minSplash;
+
+    if (!isWarm) {
+      final elapsed = Duration(milliseconds: bootstrapMs);
+      final remainingToCap = _maxColdSplash - elapsed;
+      if (remainingToCap < hold) {
+        hold = remainingToCap > Duration.zero ? remainingToCap : Duration.zero;
+      }
+    }
 
     final elapsed = DateTime.now().difference(started);
     final remaining = hold - elapsed;
     if (remaining > Duration.zero) {
       await Future<void>.delayed(remaining);
+    }
+
+    if (kDebugMode) {
+      debugPrint(
+        'Splash timing: bootstrap=${bootstrapMs}ms warm=$isWarm',
+      );
     }
 
     if (!mounted) return;
@@ -123,98 +140,78 @@ class _SplashScreenState extends State<SplashScreen>
   void dispose() {
     _enter.dispose();
     _exit.dispose();
-    _road.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.tealDeep,
       body: FadeTransition(
         opacity: Tween<double>(begin: 1, end: 0).animate(
           CurvedAnimation(parent: _exit, curve: Curves.easeInOut),
         ),
-        child: DecoratedBox(
-          decoration: const BoxDecoration(gradient: AppColors.splashGradient),
-          child: Stack(
-            children: [
-              const Positioned.fill(child: _GlowBackdrop()),
-              SafeArea(
-                child: Column(
-                  children: [
-                    const Spacer(flex: 3),
-                    FadeTransition(
-                      opacity: _logoFade,
-                      child: ScaleTransition(
+        child: SizedBox.expand(
+          child: DecoratedBox(
+            decoration: const BoxDecoration(gradient: AppColors.splashGradient),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                const _GlowBackdrop(),
+                SafeArea(
+                  child: Column(
+                    children: [
+                      const Spacer(flex: 3),
+                      ScaleTransition(
                         scale: _logoScale,
-                        child: AnimatedBuilder(
-                          animation: _road,
-                          builder: (context, _) =>
-                              RaastaLogo(size: 116, dashPhase: _road.value),
+                        child: const RaastaLogo(
+                          size: 120,
+                          circular: true,
+                          filled: false,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 32),
-                    FadeTransition(
-                      opacity: _textFade,
-                      child: SlideTransition(
-                        position: _textSlide,
-                        child: Column(
-                          children: [
-                            const RaastaWordmark(
-                              fontSize: 32,
-                              color: AppColors.white,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Know the road before you reach it.',
-                              style: GoogleFonts.dmSans(
-                                color: AppColors.white.withValues(alpha: 0.88),
-                                fontSize: 14.5,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 28),
+                      FadeTransition(
+                        opacity: _wordFade,
+                        child: SlideTransition(
+                          position: _wordSlide,
+                          child: const RaastaWordmark(
+                            fontSize: 32,
+                            color: AppColors.white,
+                          ),
                         ),
                       ),
-                    ),
-                    const Spacer(flex: 4),
-                    FadeTransition(
-                      opacity: _textFade,
-                      child: Column(
-                        children: [
-                          if (!_failed) _LoadingBar(animation: _road),
-                          if (!_failed) const SizedBox(height: 14),
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 280),
-                            child: Text(
-                              _status,
-                              key: ValueKey(_status),
-                              style: GoogleFonts.dmSans(
-                                color: AppColors.white.withValues(alpha: 0.7),
-                                fontSize: 12.5,
-                                letterSpacing: 0.3,
-                              ),
+                      const SizedBox(height: 12),
+                      FadeTransition(
+                        opacity: _tagFade,
+                        child: SlideTransition(
+                          position: _tagSlide,
+                          child: Text(
+                            'Know the road before you reach it.',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.dmSans(
+                              color: AppColors.white.withValues(alpha: 0.88),
+                              fontSize: 14.5,
+                              letterSpacing: 0.2,
                             ),
                           ),
-                          if (_failed) ...[
-                            const SizedBox(height: 16),
-                            TextButton(
-                              onPressed: _boot,
-                              style: TextButton.styleFrom(
-                                foregroundColor: AppColors.white,
-                              ),
-                              child: const Text('Try again'),
-                            ),
-                          ],
-                        ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 40),
-                  ],
+                      const Spacer(flex: 4),
+                      if (_failed)
+                        TextButton(
+                          onPressed: _boot,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.white,
+                          ),
+                          child: const Text('Try again'),
+                        ),
+                      const SizedBox(height: 40),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -232,12 +229,12 @@ class _GlowBackdrop extends StatelessWidget {
         Positioned(
           top: -120,
           right: -80,
-          child: _Glow(size: 280, opacity: 0.18),
+          child: _Glow(size: 280, opacity: 0.08),
         ),
         Positioned(
           bottom: -140,
           left: -90,
-          child: _Glow(size: 320, opacity: 0.14),
+          child: _Glow(size: 320, opacity: 0.06),
         ),
       ],
     );
@@ -262,40 +259,6 @@ class _Glow extends StatelessWidget {
             AppColors.white.withValues(alpha: opacity),
             AppColors.white.withValues(alpha: 0),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LoadingBar extends StatelessWidget {
-  const _LoadingBar({required this.animation});
-
-  final Animation<double> animation;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 96,
-      height: 3,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(99),
-        child: AnimatedBuilder(
-          animation: animation,
-          builder: (context, _) {
-            return Stack(
-              children: [
-                Container(color: AppColors.white.withValues(alpha: 0.22)),
-                Align(
-                  alignment: Alignment(-1 + animation.value * 2, 0),
-                  child: Container(
-                    width: 34,
-                    color: AppColors.white.withValues(alpha: 0.95),
-                  ),
-                ),
-              ],
-            );
-          },
         ),
       ),
     );

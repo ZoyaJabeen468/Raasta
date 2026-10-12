@@ -54,7 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
           index: _index,
           children: [
             const DriveTab(),
-            DashboardTab(onStartDrive: _startDrive),
+            const DashboardTab(),
             const ReportsScreen(embedded: true),
             const ProfileTab(),
           ],
