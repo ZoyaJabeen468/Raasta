@@ -17,6 +17,7 @@ import '../../providers/trips_provider.dart';
 import '../../widgets/confirm_dialog.dart';
 import 'widgets/drive_alert_card.dart';
 import 'widgets/drive_hud.dart';
+import 'widgets/drive_sign_card.dart';
 import 'widgets/drive_viewfinder.dart';
 import 'widgets/trip_summary_sheet.dart';
 
@@ -250,9 +251,22 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
                     ),
                   ),
                   Expanded(
-                    child: _DriveCenterChips(
-                      drive: drive,
-                      detector: widget.detector,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: _DriveCenterChips(
+                            drive: drive,
+                            detector: widget.detector,
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.topCenter,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: DriveSignCard(sign: drive.visibleSign),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   Padding(

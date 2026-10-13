@@ -10,6 +10,7 @@ class TtsService {
   final FlutterTts _tts;
   bool _ready = false;
   bool _speaking = false;
+  bool _signSpeaking = false;
   DateTime? _lastAnnounceAt;
 
   /// Cached result of probing the device for an Urdu-capable locale.
@@ -232,6 +233,53 @@ class TtsService {
     if (await _setUrdu()) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
       await _speak(ur);
+    }
+  }
+
+  /// Speaks a road-sign notice. Lower priority than hazards: skipped while a
+  /// hazard is speaking or was announced within the hazard gap, and abandoned
+  /// mid-way if a hazard starts (hazards call `stop()` and take over).
+  ///
+  /// Returns `true` if the sign was (at least partly) spoken.
+  Future<bool> announceSign(
+    LanguagePreference language, {
+    required String english,
+    required String urdu,
+  }) async {
+    if (_speaking || _signSpeaking) return false;
+    final last = _lastAnnounceAt;
+    if (last != null && DateTime.now().difference(last) < _minGap) {
+      return false;
+    }
+    _signSpeaking = true;
+    try {
+      await _ensure();
+      if (_speaking) return false;
+
+      if (language == LanguagePreference.english) {
+        await _setEnglish();
+        if (!_speaking) await _speak(english);
+        return true;
+      }
+
+      if (language == LanguagePreference.urdu) {
+        final hasUrdu = await _setUrdu();
+        if (!hasUrdu) await _setEnglish();
+        if (!_speaking) await _speak(hasUrdu ? urdu : english);
+        return true;
+      }
+
+      await _setEnglish();
+      if (_speaking) return false;
+      await _speak(english);
+      if (_speaking) return true;
+      if (await _setUrdu()) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        if (!_speaking) await _speak(urdu);
+      }
+      return true;
+    } finally {
+      _signSpeaking = false;
     }
   }
 

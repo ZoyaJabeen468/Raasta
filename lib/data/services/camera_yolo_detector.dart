@@ -9,6 +9,13 @@ import '../models/hazard_type.dart';
 import 'hazard_detector.dart';
 import 'yolo_m2_interpreter.dart';
 
+/// Extra consumer of raw camera frames (e.g. M3 signs). Runs inside the
+/// image-stream callback, so it must copy what it needs and return fast.
+typedef CameraFrameTap = void Function(
+  CameraImage frame,
+  CameraController camera,
+);
+
 /// Live-camera Module-2 detector. Falls back to [SimulatedHazardDetector]
 /// on web / if the TFLite model cannot load.
 class CameraYoloHazardDetector extends ChangeNotifier
@@ -57,6 +64,9 @@ class CameraYoloHazardDetector extends ChangeNotifier
   List<HazardDetection> _liveBoxes = const [];
   DateTime? _boxesSeenAt;
   Timer? _boxHoldTimer;
+
+  /// Shares every streamed frame without opening the camera twice.
+  CameraFrameTap? onFrameTap;
 
   bool get usingRealtimeModel => _usingModel;
   double get debugPeakScore => _yolo.lastPeakScore;
@@ -118,6 +128,8 @@ class CameraYoloHazardDetector extends ChangeNotifier
   }
 
   void _onFrame(CameraImage frame) {
+    final cam = _camera;
+    if (cam != null) onFrameTap?.call(frame, cam);
     if (!_running || !_usingModel || _busy) return;
     final now = DateTime.now();
     if (_lastInferAt != null &&

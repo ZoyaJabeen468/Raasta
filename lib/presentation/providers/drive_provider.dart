@@ -7,11 +7,13 @@ import '../../core/utils/speed_band.dart';
 import '../../data/models/hazard_event.dart';
 import '../../data/models/hazard_type.dart';
 import '../../data/models/language_preference.dart';
+import '../../data/models/traffic_sign.dart';
 import '../../data/models/trip_record.dart';
 import '../../data/services/camera_yolo_detector.dart';
 import '../../data/services/gps_service.dart';
 import '../../data/services/hazard_detector.dart';
 import '../../data/services/permission_service.dart';
+import '../../data/services/sign_detector.dart';
 import '../../data/services/tts_service.dart';
 import '../../data/services/wrong_way_service.dart';
 import '../screens/drive/models/drive_alert.dart';
@@ -40,15 +42,18 @@ class DriveProvider extends ChangeNotifier {
     GpsService? gps,
     PermissionService? permissions,
     WrongWayService? wrongWay,
+    SignDetector? signs,
     Random? random,
   }) : _detector = detector ?? SimulatedHazardDetector(),
        _tts = tts ?? TtsService(),
        _gps = gps ?? GpsService(),
        _permissions = permissions ?? PermissionService(),
        _wrongWay = wrongWay ?? WrongWayService(),
+       _signs = signs ?? SignDetector(),
        _random = random ?? Random();
 
   final HazardDetector _detector;
+  final SignDetector _signs;
   final TtsService _tts;
   final GpsService _gps;
   final PermissionService _permissions;
@@ -73,7 +78,17 @@ class DriveProvider extends ChangeNotifier {
   /// M7 FE-1: end after this long while nearly stopped.
   static const stationaryEndAfter = Duration(minutes: 5);
 
+  /// M3: how long the sign card stays on screen.
+  static const signCardDuration = Duration(seconds: 5);
+
+  /// M3: don't speak a sign right after an overspeed warning.
+  static const signAfterOverspeedGap = Duration(seconds: 6);
+
   StreamSubscription<HazardDetection>? _detectionSub;
+  StreamSubscription<SignDetection>? _signSub;
+  Timer? _signCardTimer;
+  SignDetection? _lastSign;
+  SignDetection? _visibleSign;
   StreamSubscription<GpsSample>? _gpsSub;
   Timer? _ticker;
   DateTime? _startedAt;
@@ -125,6 +140,12 @@ class DriveProvider extends ChangeNotifier {
   List<HazardEvent> get events => List.unmodifiable(_events);
   Map<HazardType, int> get counts => Map.unmodifiable(_counts);
   int get hazardCount => _events.length;
+
+  /// Most recent confirmed sign this drive (kept for M4 speed limits).
+  SignDetection? get lastSign => _lastSign;
+
+  /// Sign shown on the Drive card; cleared after [signCardDuration].
+  SignDetection? get visibleSign => _visibleSign;
 
   /// Effective voice: settings + mic permission (FE-6) + in-session mute.
   bool get voiceEnabled => _settingsVoicePreferred && _micGranted;
@@ -208,7 +229,19 @@ class DriveProvider extends ChangeNotifier {
     await _detector.start();
     await _detectionSub?.cancel();
     _detectionSub = _detector.detections.listen(_onDetection);
+    await _startSignDetection();
     notifyListeners();
+  }
+
+  /// M3: shares camera frames from the M2 detector with the sign model.
+  Future<void> _startSignDetection() async {
+    await _signSub?.cancel();
+    _signSub = null;
+    final d = _detector;
+    if (d is! CameraYoloHazardDetector) return;
+    if (!await _signs.start()) return;
+    _signSub = _signs.detections.listen(_onSign);
+    d.onFrameTap = _signs.onCameraFrame;
   }
 
   Future<void> _beginActiveTrip({bool alreadyDetecting = false}) async {
@@ -267,6 +300,13 @@ class DriveProvider extends ChangeNotifier {
     _gpsSub = null;
     _ticker?.cancel();
     _ticker = null;
+    final d = _detector;
+    if (d is CameraYoloHazardDetector) d.onFrameTap = null;
+    await _signSub?.cancel();
+    _signSub = null;
+    _signCardTimer?.cancel();
+    _visibleSign = null;
+    await _signs.stop();
     await _detector.stop();
     await _gps.stop();
   }
@@ -329,6 +369,9 @@ class DriveProvider extends ChangeNotifier {
     _usingGps = false;
     _lastHeadingDegrees = null;
     _lastHeadingAccurate = false;
+    _signCardTimer?.cancel();
+    _lastSign = null;
+    _visibleSign = null;
     _wrongWay.reset();
     _wrongWay.demoForceConflict = _wrongWayDemo;
   }
@@ -520,9 +563,46 @@ class DriveProvider extends ChangeNotifier {
     }
   }
 
+  void _onSign(SignDetection sign) {
+    if (_status == DriveStatus.idle ||
+        _status == DriveStatus.finished ||
+        _status == DriveStatus.paused) {
+      return;
+    }
+
+    _lastSign = sign;
+    _visibleSign = sign;
+    _signCardTimer?.cancel();
+    _signCardTimer = Timer(signCardDuration, () {
+      if (!identical(_visibleSign, sign)) return;
+      _visibleSign = null;
+      notifyListeners();
+    });
+    notifyListeners();
+
+    if (sign.sign.action != SignAction.speak || !voiceEnabled) return;
+    final lastOverspeed = _lastOverspeedVoiceAt;
+    if (lastOverspeed != null &&
+        DateTime.now().difference(lastOverspeed) < signAfterOverspeedGap) {
+      return;
+    }
+    unawaited(
+      _tts.announceSign(
+        _language,
+        english: sign.sign.english,
+        urdu: sign.sign.urdu,
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _detectionSub?.cancel();
+    _signSub?.cancel();
+    _signCardTimer?.cancel();
+    final d = _detector;
+    if (d is CameraYoloHazardDetector) d.onFrameTap = null;
+    _signs.dispose();
     _gpsSub?.cancel();
     _ticker?.cancel();
     _detector.dispose();
