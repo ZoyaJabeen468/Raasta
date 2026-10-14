@@ -8,21 +8,19 @@ import '../../../core/utils/formatters.dart';
 import '../../../data/models/trip_stats.dart';
 import '../../providers/trips_provider.dart';
 import '../../widgets/app_card.dart';
-import '../../widgets/brand_buttons.dart';
 import '../../widgets/charts/donut_chart.dart';
 import '../../widgets/charts/score_bar.dart';
 import '../../widgets/charts/week_bars.dart';
+import '../../widgets/greeting_header.dart';
 import '../../widgets/insight_row.dart';
 import '../../widgets/raasta_nav_bar.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/stat_tile.dart';
 import '../../widgets/trip_card.dart';
 
-/// Dashboard tab — this week at a glance, lifetime totals and recent drives.
+/// Dashboard: weekly/lifetime stats and recent trips. Driving starts on Home.
 class DashboardTab extends StatelessWidget {
-  const DashboardTab({super.key, this.onStartDrive});
-
-  final VoidCallback? onStartDrive;
+  const DashboardTab({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +40,24 @@ class DashboardTab extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(20, 12, 20, RaastaNavBar.contentInset),
           children: [
             _Header(onRefresh: trips.refresh),
-            const SizedBox(height: 20),
+            const SizedBox(height: 14),
+            Text(
+              'Your driving stats',
+              style: GoogleFonts.sora(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: p.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Weekly and lifetime trends. Start drives from Home.',
+              style: GoogleFonts.dmSans(
+                fontSize: 13.5,
+                color: p.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
             _SummaryBanner(stats: stats),
             const SizedBox(height: 22),
             if (stats.isEmpty) ...[
@@ -50,14 +65,8 @@ class DashboardTab extends StatelessWidget {
                 icon: Icons.timeline_rounded,
                 title: 'No drives recorded yet',
                 message:
-                    'Start a drive and RAASTA will log distance, hazards and '
-                    'your safety score here.',
-                action: GradientButton(
-                  label: 'Start a drive',
-                  height: 50,
-                  icon: Icons.navigation_rounded,
-                  onPressed: onStartDrive,
-                ),
+                    'Go to Home, start a drive, and RAASTA will log distance, '
+                    'hazards, and your safety score here.',
               ),
             ] else ...[
               _WeeklyCard(stats: stats),
@@ -88,76 +97,14 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Dashboard',
-                style: GoogleFonts.sora(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w700,
-                  color: p.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Your driving at a glance',
-                style: GoogleFonts.dmSans(
-                  fontSize: 13.5,
-                  color: p.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-        _IconAction(
+    return PillAppBar(
+      actions: [
+        PillBarAction(
           icon: Icons.refresh_rounded,
           tooltip: 'Refresh',
           onTap: onRefresh,
         ),
       ],
-    );
-  }
-}
-
-class _IconAction extends StatelessWidget {
-  const _IconAction({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: p.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: p.border),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: Icon(icon, size: 19, color: p.textPrimary),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -169,43 +116,38 @@ class _SummaryBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final headline = stats.isEmpty
-        ? 'Ready for your first drive'
-        : '${stats.totalTrips} ${stats.totalTrips == 1 ? 'trip' : 'trips'} so far';
+        ? 'Waiting for your first trip'
+        : '${stats.totalTrips} ${stats.totalTrips == 1 ? 'trip' : 'trips'} logged';
     final sub = stats.isEmpty
-        ? 'Your stats will appear here after your first trip.'
-        : '${stats.totalHazards} hazards detected across '
-              '${Format.distance(stats.totalDistanceMeters)}.';
+        ? 'Charts and totals will show up after you save a drive.'
+        : '${stats.totalHazards} hazards · '
+              '${Format.distance(stats.totalDistanceMeters)} total';
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
-        gradient: AppColors.driveGradient,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.teal.withValues(alpha: 0.26),
-            blurRadius: 26,
-            offset: const Offset(0, 12),
-          ),
-        ],
+        color: p.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: p.border),
       ),
       child: Row(
         children: [
           Container(
-            width: 50,
-            height: 50,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: AppColors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(15),
+              color: p.brand.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.trending_up_rounded,
-              color: AppColors.white,
-              size: 24,
+            child: Icon(
+              Icons.insights_outlined,
+              color: p.brand,
+              size: 20,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -213,18 +155,18 @@ class _SummaryBanner extends StatelessWidget {
                 Text(
                   headline,
                   style: GoogleFonts.sora(
-                    fontSize: 18,
+                    fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.white,
+                    color: p.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   sub,
                   style: GoogleFonts.dmSans(
-                    fontSize: 13,
+                    fontSize: 12.5,
                     height: 1.35,
-                    color: AppColors.white.withValues(alpha: 0.9),
+                    color: p.textSecondary,
                   ),
                 ),
               ],

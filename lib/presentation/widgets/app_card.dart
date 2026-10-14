@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/theme/app_palette.dart';
+import '../../core/theme/app_tokens.dart';
 
 /// Standard surface card used across dashboard, profile and settings.
 class AppCard extends StatelessWidget {
@@ -10,7 +11,7 @@ class AppCard extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.all(16),
     this.onTap,
-    this.radius = 20,
+    this.radius = AppRadii.lg,
   });
 
   final Widget child;

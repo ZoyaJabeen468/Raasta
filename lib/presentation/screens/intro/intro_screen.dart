@@ -1,11 +1,11 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/constants/routes.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_palette.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../../../core/widgets/raasta_logo.dart';
 import '../../../data/local/local_store.dart';
 import '../../widgets/brand_buttons.dart';
@@ -13,40 +13,40 @@ import '../../widgets/screen_back_button.dart';
 
 class _IntroPage {
   const _IntroPage({
-    required this.icon,
     required this.title,
     required this.line,
-    required this.chips,
+    required this.photo,
   });
 
-  final IconData icon;
   final String title;
   final String line;
-  final List<String> chips;
+  final String photo;
 }
 
 const _pages = [
   _IntroPage(
-    icon: Icons.videocam_rounded,
-    title: 'See ahead',
-    line: 'Hazards spotted before you reach them.',
-    chips: ['Potholes', 'Speed bumps'],
+    title: 'Road hazards',
+    line: 'Spot damage before you reach it.',
+    photo: 'assets/branding/intro/hazards.jpg',
   ),
   _IntroPage(
-    icon: Icons.campaign_rounded,
-    title: 'Hear alerts',
-    line: 'Spoken warnings that keep your eyes on the road.',
-    chips: ['English & Urdu'],
+    title: 'Traffic signs',
+    line: 'Reads boards aloud in English or Urdu.',
+    photo: 'assets/branding/intro/signs.jpg',
   ),
   _IntroPage(
-    icon: Icons.insights_rounded,
-    title: 'Drive better',
-    line: 'Every trip scored and summarised for you.',
-    chips: ['Safety score'],
+    title: 'People and animals',
+    line: 'Alerts for who shares the road with you.',
+    photo: 'assets/branding/intro/life.jpg',
+  ),
+  _IntroPage(
+    title: 'Trip summary',
+    line: 'Your drives, saved on this phone.',
+    photo: 'assets/branding/intro/trips.jpg',
   ),
 ];
 
-/// First-run intro — three short screens, skippable, with a back step.
+/// First-run onboarding: full-bleed road photography, then Sign in.
 class IntroScreen extends StatefulWidget {
   const IntroScreen({super.key});
 
@@ -57,32 +57,14 @@ class IntroScreen extends StatefulWidget {
 class _IntroScreenState extends State<IntroScreen> {
   final _controller = PageController();
   int _index = 0;
-  Timer? _auto;
-
-  @override
-  void initState() {
-    super.initState();
-    _scheduleAuto();
-  }
 
   @override
   void dispose() {
-    _auto?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
-  void _scheduleAuto() {
-    _auto?.cancel();
-    _auto = Timer(const Duration(seconds: 5), () {
-      if (!mounted) return;
-      if (_index >= _pages.length - 1) return;
-      _next();
-    });
-  }
-
   Future<void> _finish() async {
-    _auto?.cancel();
     await LocalStore.instance.markIntroSeen();
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed(AppRoutes.welcome);
@@ -109,250 +91,201 @@ class _IntroScreenState extends State<IntroScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-    final isLast = _index >= _pages.length - 1;
+    return Theme(
+      data: AppTheme.dark(),
+      child: Builder(
+        builder: (context) {
+          final isLast = _index >= _pages.length - 1;
+          final dots = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(_pages.length, (i) {
+              final active = i == _index;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeOutCubic,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                height: 7,
+                width: active ? 28 : 7,
+                decoration: BoxDecoration(
+                  color: active
+                      ? AppColors.mint
+                      : AppColors.white.withValues(alpha: 0.28),
+                  borderRadius: BorderRadius.circular(AppRadii.full),
+                ),
+              );
+            }),
+          );
 
-    return Scaffold(
-      backgroundColor: p.background,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-          child: Column(
-            children: [
-              Row(
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: const SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: Brightness.light,
+              systemNavigationBarColor: AppColors.forest,
+              systemNavigationBarIconBrightness: Brightness.light,
+            ),
+            child: Scaffold(
+              backgroundColor: AppColors.forest,
+              body: Stack(
+                fit: StackFit.expand,
                 children: [
-                  AnimatedOpacity(
-                    duration: const Duration(milliseconds: 200),
-                    opacity: _index == 0 ? 0 : 1,
-                    child: IgnorePointer(
-                      ignoring: _index == 0,
-                      child: BackCircle(onTap: _back),
-                    ),
+                  PageView.builder(
+                    controller: _controller,
+                    itemCount: _pages.length,
+                    onPageChanged: (i) => setState(() => _index = i),
+                    itemBuilder: (context, i) => _IntroPhoto(page: _pages[i]),
                   ),
-                  const Spacer(),
-                  RaastaWordmark(fontSize: 14, color: p.brand),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: _finish,
-                    style: TextButton.styleFrom(
-                      foregroundColor: p.textSecondary,
-                    ),
-                    child: Text(
-                      'Skip',
-                      style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
+                  const _Scrim(),
+                  SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(22, 8, 22, 18),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              SizedBox(
+                                width: 44,
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 200),
+                                  opacity: _index == 0 ? 0 : 1,
+                                  child: IgnorePointer(
+                                    ignoring: _index == 0,
+                                    child: BackCircle(onTap: _back),
+                                  ),
+                                ),
+                              ),
+                              const Expanded(
+                                child: Center(
+                                  child: RaastaWordmark(
+                                    fontSize: 13,
+                                    color: AppColors.white,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 44,
+                                child: TextButton(
+                                  onPressed: _finish,
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: AppColors.mint,
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: const Size(44, 40),
+                                  ),
+                                  child: Text(
+                                    'Skip',
+                                    style: GoogleFonts.dmSans(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Spacer(),
+                          Text(
+                            _pages[_index].title,
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.sora(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.white,
+                              height: 1.15,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _pages[_index].line,
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.dmSans(
+                              fontSize: 15,
+                              color: AppColors.white.withValues(alpha: 0.82),
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                          if (isLast) ...[
+                            dots,
+                            const SizedBox(height: 22),
+                            GradientButton(
+                              label: 'Get started',
+                              onPressed: _next,
+                            ),
+                          ] else
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: dots,
+                                  ),
+                                ),
+                                Material(
+                                  color: AppColors.mint,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: _next,
+                                    child: const SizedBox(
+                                      width: 56,
+                                      height: 56,
+                                      child: Icon(
+                                        Icons.arrow_forward_rounded,
+                                        color: AppColors.forest,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ),
-              Expanded(
-                child: PageView.builder(
-                  controller: _controller,
-                  itemCount: _pages.length,
-                  onPageChanged: (i) {
-                    setState(() => _index = i);
-                    _scheduleAuto();
-                  },
-                  itemBuilder: (context, i) =>
-                      _IntroSlide(page: _pages[i], key: ValueKey(i)),
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(_pages.length, (i) {
-                  final active = i == _index;
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOut,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    height: 6,
-                    width: active ? 26 : 6,
-                    decoration: BoxDecoration(
-                      color: active ? p.brand : p.border,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  );
-                }),
-              ),
-              const SizedBox(height: 28),
-              GradientButton(
-                label: isLast ? 'Get started' : 'Continue',
-                icon: isLast ? Icons.arrow_forward_rounded : null,
-                onPressed: _next,
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 }
 
-class _IntroSlide extends StatefulWidget {
-  const _IntroSlide({super.key, required this.page});
+class _IntroPhoto extends StatelessWidget {
+  const _IntroPhoto({required this.page});
 
   final _IntroPage page;
 
   @override
-  State<_IntroSlide> createState() => _IntroSlideState();
-}
-
-class _IntroSlideState extends State<_IntroSlide>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 620),
-  )..forward();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-    final fade = CurvedAnimation(parent: _c, curve: Curves.easeOut);
-    final rise = Tween<Offset>(
-      begin: const Offset(0, 0.14),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _c, curve: Curves.easeOutCubic));
-
-    return FadeTransition(
-      opacity: fade,
-      child: SlideTransition(
-        position: rise,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final short = constraints.maxHeight < 520;
-            final tile = short ? 120.0 : 176.0;
-            final titleSize = short ? 26.0 : 32.0;
-            final gap = short ? 24.0 : 44.0;
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _IllustrationTile(icon: widget.page.icon, size: tile),
-                    SizedBox(height: gap),
-                    Text(
-                      widget.page.title,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.sora(
-                        fontSize: titleSize,
-                        fontWeight: FontWeight.w700,
-                        color: p.textPrimary,
-                        height: 1.15,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      widget.page.line,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.dmSans(
-                        fontSize: short ? 14.5 : 16,
-                        color: p.textSecondary,
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final chip in widget.page.chips)
-                          _Chip(label: chip),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ),
+    return Image.asset(
+      page.photo,
+      fit: BoxFit.cover,
+      alignment: Alignment.center,
+      filterQuality: FilterQuality.high,
+      gaplessPlayback: true,
     );
   }
 }
 
-class _IllustrationTile extends StatelessWidget {
-  const _IllustrationTile({required this.icon, this.size = 176});
-
-  final IconData icon;
-  final double size;
+class _Scrim extends StatelessWidget {
+  const _Scrim();
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-    final inner = size * 0.73;
-    final radius = size * 0.32;
-
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: p.brandSoft,
-              borderRadius: BorderRadius.circular(radius),
-            ),
+    return const IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0x88062E2B),
+              Color(0x22062E2B),
+              Color(0xE0062E2B),
+            ],
+            stops: [0, 0.42, 1],
           ),
-          Container(
-            width: inner,
-            height: inner,
-            decoration: BoxDecoration(
-              gradient: AppColors.driveGradient,
-              borderRadius: BorderRadius.circular(radius * 0.72),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.teal.withValues(alpha: 0.32),
-                  blurRadius: size * 0.17,
-                  offset: Offset(0, size * 0.09),
-                ),
-              ],
-            ),
-            child: Icon(
-              icon,
-              color: AppColors.white,
-              size: size * 0.3,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: p.border),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.dmSans(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: p.brand,
         ),
       ),
     );

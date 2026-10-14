@@ -1,10 +1,114 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_palette.dart';
+
+/// Solid brand action used on auth screens. No gradient, no drop shadow.
+class BrandButton extends StatelessWidget {
+  const BrandButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.loading = false,
+    this.height = 52,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final bool loading;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null && !loading;
+
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: enabled ? onPressed : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.tealDeep,
+          foregroundColor: AppColors.white,
+          disabledBackgroundColor: AppColors.tealDeep.withValues(alpha: 0.45),
+          disabledForegroundColor: AppColors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          textStyle: GoogleFonts.dmSans(
+            fontSize: 15.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        child: loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.1,
+                  color: AppColors.white,
+                ),
+              )
+            : Text(label),
+      ),
+    );
+  }
+}
+
+/// Mint fill, dark teal label. Used on Permissions and Voice alerts.
+class MintButton extends StatelessWidget {
+  const MintButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.loading = false,
+    this.height = 52,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final bool loading;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null && !loading;
+
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: enabled ? onPressed : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.mint,
+          foregroundColor: AppColors.forest,
+          disabledBackgroundColor: AppColors.mint.withValues(alpha: 0.4),
+          disabledForegroundColor: AppColors.forest,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: GoogleFonts.inter(
+            fontSize: 15.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        child: loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.1,
+                  color: AppColors.forest,
+                ),
+              )
+            : Text(label),
+      ),
+    );
+  }
+}
 
 /// Primary call to action with the brand gradient and a soft lift.
 class GradientButton extends StatelessWidget {
@@ -226,7 +330,7 @@ class SocialButton extends StatelessWidget {
   }
 }
 
-/// Google's four-colour "G", drawn so no image asset is needed.
+/// Official Google "G" mark (four brand colours + blue crossbar).
 class GoogleGlyph extends StatelessWidget {
   const GoogleGlyph({super.key, this.size = 20});
 
@@ -237,12 +341,12 @@ class GoogleGlyph extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: CustomPaint(painter: _GooglePainter()),
+      child: CustomPaint(painter: _GoogleGPainter()),
     );
   }
 }
 
-class _GooglePainter extends CustomPainter {
+class _GoogleGPainter extends CustomPainter {
   static const _blue = Color(0xFF4285F4);
   static const _red = Color(0xFFEA4335);
   static const _yellow = Color(0xFFFBBC05);
@@ -250,44 +354,60 @@ class _GooglePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final stroke = size.width * 0.22;
-    final rect = Rect.fromLTWH(
-      0,
-      0,
-      size.width,
-      size.height,
-    ).deflate(stroke / 2);
+    canvas.scale(size.width / 48, size.height / 48);
 
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.butt;
-
-    // Ring split into the four brand colours, starting at the right gap.
-    void arc(double startDeg, double sweepDeg, Color color) {
-      canvas.drawArc(
-        rect,
-        startDeg * math.pi / 180,
-        sweepDeg * math.pi / 180,
-        false,
-        paint..color = color,
-      );
+    void fill(Path path, Color color) {
+      canvas.drawPath(path, Paint()..color = color);
     }
 
-    arc(-50, -85, _red);
-    arc(-135, -80, _yellow);
-    arc(145, -75, _green);
-    arc(70, -120, _blue);
-
-    // The blue crossbar of the G.
-    canvas.drawRect(
-      Rect.fromLTWH(
-        size.width * 0.5,
-        size.height * 0.42,
-        size.width * 0.5 - stroke * 0.2,
-        stroke,
-      ),
-      Paint()..color = _blue,
+    fill(
+      Path()
+        ..moveTo(24, 9.5)
+        ..cubicTo(27.54, 9.5, 30.71, 10.72, 33.21, 13.1)
+        ..lineTo(40.06, 6.25)
+        ..cubicTo(35.9, 2.38, 30.47, 0, 24, 0)
+        ..cubicTo(14.62, 0, 6.51, 5.38, 2.56, 13.22)
+        ..lineTo(10.54, 19.41)
+        ..cubicTo(12.43, 13.72, 17.74, 9.5, 24, 9.5)
+        ..close(),
+      _red,
+    );
+    fill(
+      Path()
+        ..moveTo(46.98, 24.55)
+        ..cubicTo(46.98, 22.98, 46.83, 21.46, 46.6, 20)
+        ..lineTo(24, 20)
+        ..lineTo(24, 29.02)
+        ..lineTo(36.94, 29.02)
+        ..cubicTo(36.36, 31.98, 34.68, 34.5, 32.16, 36.2)
+        ..lineTo(39.89, 42.2)
+        ..cubicTo(44.4, 38.02, 46.98, 31.84, 46.98, 24.55)
+        ..close(),
+      _blue,
+    );
+    fill(
+      Path()
+        ..moveTo(10.53, 28.59)
+        ..cubicTo(10.05, 27.14, 9.77, 25.6, 9.77, 24)
+        ..cubicTo(9.77, 22.4, 10.04, 20.86, 10.53, 19.41)
+        ..lineTo(2.55, 13.22)
+        ..cubicTo(0.92, 16.46, 0, 20.12, 0, 24)
+        ..cubicTo(0, 27.88, 0.92, 31.54, 2.56, 34.78)
+        ..lineTo(10.53, 28.59)
+        ..close(),
+      _yellow,
+    );
+    fill(
+      Path()
+        ..moveTo(24, 48)
+        ..cubicTo(30.48, 48, 35.93, 45.87, 39.89, 42.19)
+        ..lineTo(32.16, 36.19)
+        ..cubicTo(30.01, 37.64, 27.24, 38.49, 24, 38.49)
+        ..cubicTo(17.74, 38.49, 12.43, 34.27, 10.53, 28.58)
+        ..lineTo(2.55, 34.77)
+        ..cubicTo(6.51, 42.62, 14.62, 48, 24, 48)
+        ..close(),
+      _green,
     );
   }
 

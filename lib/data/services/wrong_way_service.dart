@@ -11,14 +11,23 @@ class WrongWayService {
   static const demoConfirmFor = Duration(seconds: 20);
   static const cooldown = Duration(seconds: 90);
 
-  /// Ignore near-stationary heading noise.
+  /// Ignore near-stationary heading noise when checking for conflict.
   static const minSpeedKph = 8.0;
+
+  /// Speed required before a sample can count toward the baseline lock.
+  /// Walking-pace GPS jitter must not set the road direction.
+  static const baselineLockMinSpeedKph = 15.0;
 
   /// Degrees from baseline that count as “opposite enough”.
   static const oppositeThresholdDeg = 135.0;
 
-  /// Consecutive good samples before locking the road direction.
-  static const baselineLockSamples = 5;
+  /// Consecutive fast, steady samples before locking the road direction.
+  /// At the 1 Hz drive tick this is about 12 seconds of real travel.
+  static const baselineLockSamples = 12;
+
+  /// Heading spread allowed while the lock is still forming.
+  /// A turn restarts the window. The locked baseline itself never moves.
+  static const baselineLockSpreadDeg = 45.0;
 
   /// Max headingAccuracy (degrees) accepted from Geolocator.
   static const maxHeadingAccuracyDeg = 45.0;
@@ -26,6 +35,7 @@ class WrongWayService {
   bool demoForceConflict = false;
 
   double? _baselineHeading;
+  double? _baselineCandidate;
   int _baselineHits = 0;
   DateTime? _conflictSince;
   DateTime? _lastAlertAt;
@@ -44,6 +54,7 @@ class WrongWayService {
 
   void reset() {
     _baselineHeading = null;
+    _baselineCandidate = null;
     _baselineHits = 0;
     _conflictSince = null;
     _lastAlertAt = null;
@@ -70,6 +81,7 @@ class WrongWayService {
         ? true
         : _gpsConflict(
             moving: moving,
+            speedKph: speedKph,
             headingDegrees: headingDegrees,
             headingAccurate: headingAccurate,
           );
@@ -94,21 +106,41 @@ class WrongWayService {
 
   bool _gpsConflict({
     required bool moving,
+    required double speedKph,
     required double? headingDegrees,
     required bool headingAccurate,
   }) {
     if (!moving || headingDegrees == null || !headingAccurate) return false;
 
     if (_baselineHeading == null) {
-      _baselineHits++;
-      if (_baselineHits >= baselineLockSamples) {
-        _baselineHeading = headingDegrees;
-      }
+      _accumulateBaseline(speedKph: speedKph, headingDegrees: headingDegrees);
       return false;
     }
 
     return headingDelta(_baselineHeading!, headingDegrees) >=
         oppositeThresholdDeg;
+  }
+
+  /// Counts a lock sample only while moving fast and holding a steady heading.
+  /// The stored baseline is the first steady heading, not a rolling average.
+  void _accumulateBaseline({
+    required double speedKph,
+    required double headingDegrees,
+  }) {
+    if (speedKph < baselineLockMinSpeedKph) return;
+
+    final candidate = _baselineCandidate;
+    if (candidate == null ||
+        headingDelta(candidate, headingDegrees) > baselineLockSpreadDeg) {
+      _baselineCandidate = headingDegrees;
+      _baselineHits = 1;
+      return;
+    }
+
+    _baselineHits++;
+    if (_baselineHits >= baselineLockSamples) {
+      _baselineHeading = candidate;
+    }
   }
 
   /// Smallest angle between two compass headings (0–180).

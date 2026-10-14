@@ -3,11 +3,166 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_palette.dart';
+import '../../core/widgets/raasta_logo.dart';
 
-/// Floating greeting card that sits over the ambient wash.
-///
-/// Holds a brand tile, a time-aware greeting with the driver's name, and up
-/// to two circular actions on the right.
+/// Floating pill top bar: brand on the left, compact actions on the right.
+class PillAppBar extends StatelessWidget {
+  const PillAppBar({
+    super.key,
+    this.actions = const [],
+  });
+
+  final List<PillBarAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: p.border),
+        boxShadow: [
+          BoxShadow(
+            color: p.shadow,
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const RaastaLogo(size: 34),
+          const SizedBox(width: 8),
+          RaastaWordmark(fontSize: 14, color: p.brand),
+          const Spacer(),
+          for (var i = 0; i < actions.length; i++) ...[
+            if (i > 0) const SizedBox(width: 4),
+            _PillIconButton(action: actions[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+@immutable
+class PillBarAction {
+  const PillBarAction({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+    this.badgeCount,
+    this.showDot = false,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+  final int? badgeCount;
+  final bool showDot;
+}
+
+/// Kept for older call sites that still use [GreetingHeader] actions.
+@immutable
+class HeaderAction {
+  const HeaderAction({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+    this.showDot = false,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+  final bool showDot;
+
+  PillBarAction toPill() => PillBarAction(
+        icon: icon,
+        onTap: onTap,
+        tooltip: tooltip,
+        showDot: showDot,
+      );
+}
+
+class _PillIconButton extends StatelessWidget {
+  const _PillIconButton({required this.action});
+
+  final PillBarAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final badge = action.badgeCount;
+
+    return Tooltip(
+      message: action.tooltip,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Material(
+            color: Colors.transparent,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: action.onTap,
+              customBorder: const CircleBorder(),
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: Icon(action.icon, size: 20, color: p.textPrimary),
+              ),
+            ),
+          ),
+          if (action.showDot && badge == null)
+            Positioned(
+              top: 6,
+              right: 7,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: AppColors.alert,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: p.surface, width: 1.5),
+                ),
+              ),
+            ),
+          if (badge != null && badge > 0)
+            Positioned(
+              top: 2,
+              right: 2,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                height: 16,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.alert,
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(color: p.surface, width: 1.5),
+                ),
+                child: Text(
+                  badge > 9 ? '9+' : '$badge',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.white,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Legacy greeting card. Prefer [PillAppBar] + a welcome hero on Home.
 class GreetingHeader extends StatelessWidget {
   const GreetingHeader({
     super.key,
@@ -30,132 +185,8 @@ class GreetingHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            p.brand.withValues(alpha: 0.16),
-            p.brand.withValues(alpha: 0.06),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: p.brand.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              gradient: AppColors.driveGradient,
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Icon(leadingIcon, color: AppColors.white, size: 23),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  greetingFor(DateTime.now()),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.dmSans(
-                    fontSize: 12.5,
-                    color: p.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.sora(
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                    color: p.textPrimary,
-                    height: 1.1,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          for (final action in actions) ...[
-            const SizedBox(width: 8),
-            _ActionCircle(action: action),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// One circular action in the [GreetingHeader].
-@immutable
-class HeaderAction {
-  const HeaderAction({
-    required this.icon,
-    required this.onTap,
-    required this.tooltip,
-    this.showDot = false,
-  });
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final String tooltip;
-
-  /// Draws an unread indicator on the top-right of the circle.
-  final bool showDot;
-}
-
-class _ActionCircle extends StatelessWidget {
-  const _ActionCircle({required this.action});
-
-  final HeaderAction action;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-
-    return Tooltip(
-      message: action.tooltip,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Material(
-            color: p.surface.withValues(alpha: 0.85),
-            shape: CircleBorder(side: BorderSide(color: p.border)),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: action.onTap,
-              child: SizedBox(
-                width: 42,
-                height: 42,
-                child: Icon(action.icon, size: 19, color: p.textPrimary),
-              ),
-            ),
-          ),
-          if (action.showDot)
-            Positioned(
-              top: 2,
-              right: 2,
-              child: Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: AppColors.alert,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: p.surface, width: 1.5),
-                ),
-              ),
-            ),
-        ],
-      ),
+    return PillAppBar(
+      actions: [for (final a in actions) a.toPill()],
     );
   }
 }

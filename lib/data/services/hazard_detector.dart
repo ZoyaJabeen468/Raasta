@@ -44,6 +44,12 @@ abstract class HazardDetector {
 
   Future<void> stop();
 
+  /// Stops capture without ending the session. Default is a full [stop].
+  Future<void> pauseCapture() => stop();
+
+  /// Continues after [pauseCapture]. Default is a full [start].
+  Future<void> resumeCapture() => start();
+
   void dispose();
 }
 
@@ -86,6 +92,12 @@ class SimulatedHazardDetector implements HazardDetector {
     _timer?.cancel();
     _timer = null;
   }
+
+  @override
+  Future<void> pauseCapture() => stop();
+
+  @override
+  Future<void> resumeCapture() => start();
 
   @override
   void dispose() {

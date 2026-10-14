@@ -49,9 +49,9 @@ class AppPalette extends ThemeExtension<AppPalette> {
     brand: AppColors.teal,
     brandSoft: AppColors.tealSoft,
     shadow: Color(0x14000000),
-    washTop: Color(0xFFDCEFEC),
-    washBottom: Color(0xFFF7FAFA),
-    blob: Color(0x22129188),
+    washTop: Color(0xFFCDEBE6),
+    washBottom: Color(0xFFF4F8F7),
+    blob: Color(0x229AF0E0),
   );
 
   static const dark = AppPalette(
@@ -64,7 +64,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     brand: AppColors.tealBright,
     brandSoft: Color(0xFF15302E),
     shadow: Color(0x33000000),
-    washTop: Color(0xFF102624),
+    washTop: Color(0xFF062E2B),
     washBottom: AppColors.night,
     blob: Color(0x1A1AA89E),
   );

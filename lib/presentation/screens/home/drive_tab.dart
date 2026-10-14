@@ -13,12 +13,10 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/trips_provider.dart';
 import '../../widgets/activity_sheet.dart';
-import '../../widgets/app_card.dart';
 import '../../widgets/greeting_header.dart';
-import '../../widgets/quick_action_strip.dart';
 import '../../widgets/raasta_nav_bar.dart';
 
-/// Drive tab — calm pre-drive surface: status, one start action, short tips.
+/// Home: start a drive + readiness. Stats live on Dashboard / Reports.
 class DriveTab extends StatefulWidget {
   const DriveTab({super.key});
 
@@ -28,13 +26,14 @@ class DriveTab extends StatefulWidget {
 
 class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
   final _permissions = PermissionService();
-  bool? _cameraReady;
+  bool? _cameraOk;
+  bool? _locationOk;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _checkCamera();
+    _refreshReady();
   }
 
   @override
@@ -45,53 +44,63 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _checkCamera();
+    if (state == AppLifecycleState.resumed) _refreshReady();
   }
 
-  Future<void> _checkCamera() async {
-    final status = await _permissions.statusOf(AppPermissionKind.camera);
-    if (mounted) setState(() => _cameraReady = status.isGranted);
+  Future<void> _refreshReady() async {
+    final cam = await _permissions.statusOf(AppPermissionKind.camera);
+    final loc = await _permissions.statusOf(AppPermissionKind.location);
+    if (!mounted) return;
+    setState(() {
+      _cameraOk = cam.isGranted;
+      _locationOk = loc.isGranted;
+    });
   }
 
-  Future<void> _openCameraHelp() async {
-    if (_cameraReady == true) return;
-    await openAppSettings();
-    if (mounted) await _checkCamera();
+  Future<void> _fixPermission(AppPermissionKind kind) async {
+    final status = await _permissions.request(kind);
+    if (!status.isGranted) await openAppSettings();
+    if (mounted) await _refreshReady();
   }
 
   Future<void> _startDrive() async {
     await Navigator.of(context).pushNamed(AppRoutes.drive);
     if (!mounted) return;
     await context.read<TripsProvider>().refresh();
-    await _checkCamera();
+    await _refreshReady();
   }
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final user = context.watch<AuthProvider>().user;
-    final stats = context.watch<TripsProvider>().stats;
     final settings = context.watch<SettingsProvider>().settings;
+    final stats = context.watch<TripsProvider>().stats;
     final first = user?.name.trim().split(' ').first ?? 'Driver';
+    final now = DateTime.now();
 
     final activity = ActivityItem.from(stats);
-    final hasRecent =
-        activity.isNotEmpty &&
+    final hasRecent = activity.isNotEmpty &&
         DateTime.now().difference(activity.first.at) < const Duration(days: 1);
+
+    final greeting = GreetingHeader.greetingFor(now);
+    final cameraOk = _cameraOk == true;
+    final locationOk = _locationOk == true;
+    final voiceOk = settings.voiceAlerts;
 
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, RaastaNavBar.contentInset),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, RaastaNavBar.contentInset),
         children: [
-          GreetingHeader(
-            name: first,
+          PillAppBar(
             actions: [
-              HeaderAction(
+              PillBarAction(
                 icon: Icons.notifications_none_rounded,
                 tooltip: 'Activity',
                 showDot: hasRecent,
                 onTap: () => ActivitySheet.show(context, activity),
               ),
-              HeaderAction(
+              PillBarAction(
                 icon: Icons.settings_outlined,
                 tooltip: 'Settings',
                 onTap: () =>
@@ -99,174 +108,234 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          _ReadyPill(
-            cameraReady: _cameraReady,
-            onTap: _cameraReady == false ? _openCameraHelp : null,
-          ),
           const SizedBox(height: 16),
-          _StartDriveCard(onStart: _startDrive),
-          const SizedBox(height: 10),
-          Text(
-            'You can also use the Drive button in the bar below.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.dmSans(
-              fontSize: 12.5,
-              color: context.palette.textSecondary,
-            ),
+          _WelcomeHero(
+            dateLabel: Format.longDate(now),
+            title: '$greeting, $first',
+            subtitle: cameraOk
+                ? 'RAASTA is ready when you are.'
+                : 'Turn on camera before you start.',
+            onStart: _startDrive,
           ),
           const SizedBox(height: 22),
-          QuickActionStrip(
-            actions: [
-              QuickAction(
-                icon: Icons.translate_rounded,
-                label: settings.voiceAlerts
-                    ? settings.language.label
-                    : 'Muted',
-                onTap: () =>
-                    Navigator.of(context).pushNamed(AppRoutes.settings),
+          Text(
+            'Before you drive',
+            style: GoogleFonts.sora(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: p.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _ReadyRow(
+            items: [
+              _ReadyItem(
+                icon: Icons.photo_camera_outlined,
+                label: 'Camera',
+                ok: cameraOk,
+                onTap: () => _fixPermission(AppPermissionKind.camera),
               ),
-              QuickAction(
-                icon: Icons.insights_rounded,
-                label: stats.trips.isEmpty
-                    ? 'Reports'
-                    : Format.tripStamp(
-                        stats.trips.first.startedAt,
-                      ).split(' · ').first,
-                onTap: () =>
-                    Navigator.of(context).pushNamed(AppRoutes.reports),
+              _ReadyItem(
+                icon: Icons.place_outlined,
+                label: 'GPS',
+                ok: locationOk,
+                onTap: () => _fixPermission(AppPermissionKind.location),
               ),
-              QuickAction(
-                icon: Icons.help_outline_rounded,
-                label: 'Help',
-                onTap: () => Navigator.of(context).pushNamed(AppRoutes.faq),
+              _ReadyItem(
+                icon: Icons.volume_up_outlined,
+                label: 'Voice',
+                ok: voiceOk,
+                onTap: () async {
+                  await context.read<SettingsProvider>().setVoiceAlerts(
+                    !settings.voiceAlerts,
+                  );
+                },
               ),
             ],
           ),
           const SizedBox(height: 22),
-          const _BeforeYouGo(),
+          Text(
+            'Quick tips',
+            style: GoogleFonts.sora(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: p.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const _TipStrip(),
         ],
       ),
     );
   }
 }
 
-class _ReadyPill extends StatelessWidget {
-  const _ReadyPill({required this.cameraReady, this.onTap});
+class _WelcomeHero extends StatelessWidget {
+  const _WelcomeHero({
+    required this.dateLabel,
+    required this.title,
+    required this.subtitle,
+    required this.onStart,
+  });
 
-  final bool? cameraReady;
-  final VoidCallback? onTap;
+  final String dateLabel;
+  final String title;
+  final String subtitle;
+  final VoidCallback onStart;
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-
-    late final Widget pill;
-    if (cameraReady == null) {
-      pill = StatusPill(
-        icon: Icons.hourglass_empty_rounded,
-        label: 'Checking camera',
-        color: p.textSecondary,
-      );
-    } else if (cameraReady!) {
-      pill = const StatusPill(
-        icon: Icons.verified_user_rounded,
-        label: 'Camera ready',
-        color: AppColors.safe,
-      );
-    } else {
-      pill = const StatusPill(
-        icon: Icons.videocam_off_rounded,
-        label: 'Camera off — tap to enable',
-        color: AppColors.amber,
-      );
-    }
-
-    if (onTap == null) return Align(alignment: Alignment.centerLeft, child: pill);
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(99),
-          child: pill,
-        ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        gradient: AppColors.driveGradient,
+        borderRadius: BorderRadius.circular(18),
       ),
-    );
-  }
-}
-
-class _StartDriveCard extends StatelessWidget {
-  const _StartDriveCard({required this.onStart});
-
-  final Future<void> Function() onStart;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onStart,
-        borderRadius: BorderRadius.circular(26),
-        child: Ink(
-          padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
-          decoration: BoxDecoration(
-            gradient: AppColors.driveGradient,
-            borderRadius: BorderRadius.circular(26),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.teal.withValues(alpha: 0.28),
-                blurRadius: 28,
-                offset: const Offset(0, 14),
-              ),
-            ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            dateLabel,
+            style: GoogleFonts.dmSans(
+              fontSize: 12,
+              color: AppColors.white.withValues(alpha: 0.8),
+            ),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AppColors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: AppColors.white,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: GoogleFonts.sora(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: AppColors.white,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: GoogleFonts.dmSans(
+              fontSize: 13,
+              color: AppColors.white.withValues(alpha: 0.88),
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Material(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(99),
+            child: InkWell(
+              onTap: onStart,
+              borderRadius: BorderRadius.circular(99),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Icon(
+                      Icons.play_arrow_rounded,
+                      size: 18,
+                      color: AppColors.tealDeep,
+                    ),
+                    const SizedBox(width: 4),
                     Text(
                       'Start drive',
-                      style: GoogleFonts.sora(
-                        color: AppColors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Live alerts, GPS speed, trip summary.',
                       style: GoogleFonts.dmSans(
-                        color: AppColors.white.withValues(alpha: 0.9),
-                        fontSize: 13.5,
-                        height: 1.35,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.tealDeep,
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 16,
-                color: AppColors.white.withValues(alpha: 0.85),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReadyItem {
+  const _ReadyItem({
+    required this.icon,
+    required this.label,
+    required this.ok,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool ok;
+  final VoidCallback onTap;
+}
+
+class _ReadyRow extends StatelessWidget {
+  const _ReadyRow({required this.items});
+
+  final List<_ReadyItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+
+    return Row(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          Expanded(child: _ReadyChip(item: items[i], palette: p)),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReadyChip extends StatelessWidget {
+  const _ReadyChip({required this.item, required this.palette});
+
+  final _ReadyItem item;
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = item.ok;
+    final tint = ok ? AppColors.safe : AppColors.amber;
+
+    return Material(
+      color: palette.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: ok ? null : item.onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: palette.border),
+          ),
+          child: Column(
+            children: [
+              Icon(item.icon, size: 20, color: palette.brand),
+              const SizedBox(height: 6),
+              Text(
+                item.label,
+                style: GoogleFonts.dmSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: palette.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                ok ? 'On' : 'Off',
+                style: GoogleFonts.dmSans(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: tint,
+                ),
               ),
             ],
           ),
@@ -276,89 +345,60 @@ class _StartDriveCard extends StatelessWidget {
   }
 }
 
-class _BeforeYouGo extends StatelessWidget {
-  const _BeforeYouGo();
+class _TipStrip extends StatelessWidget {
+  const _TipStrip();
 
   static const _tips = [
-    (Icons.phone_android_rounded, 'Mount your phone', 'Rear camera toward the road'),
-    (Icons.volume_up_rounded, 'Allow microphone', 'Voice alerts; otherwise visual only'),
-    (Icons.my_location_rounded, 'Keep location on', 'GPS speed and trip start'),
-    (Icons.battery_charging_full_rounded, 'Keep it charged', 'Camera runs continuously'),
+    (Icons.phone_android_outlined, 'Mount phone', 'Rear camera to road'),
+    (Icons.volume_up_outlined, 'Voice ready', 'Or use visual alerts'),
+    (Icons.place_outlined, 'Location on', 'Needed for speed'),
   ];
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
 
-    return AppCard(
-      radius: 18,
-      padding: EdgeInsets.zero,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          initiallyExpanded: false,
-          tilePadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          leading: Container(
-            width: 40,
-            height: 40,
+    return SizedBox(
+      height: 96,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _tips.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, i) {
+          final tip = _tips[i];
+          return Container(
+            width: 132,
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: p.brandSoft,
-              borderRadius: BorderRadius.circular(12),
+              color: p.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: p.border),
             ),
-            child: Icon(Icons.checklist_rounded, color: p.brand, size: 20),
-          ),
-          title: Text(
-            'Before you go',
-            style: GoogleFonts.dmSans(
-              fontWeight: FontWeight.w700,
-              color: p.textPrimary,
-              fontSize: 15.5,
-            ),
-          ),
-          subtitle: Text(
-            '4 quick checks',
-            style: GoogleFonts.dmSans(
-              color: p.textSecondary,
-              fontSize: 12.5,
-            ),
-          ),
-          children: [
-            for (var i = 0; i < _tips.length; i++) ...[
-              if (i > 0) Divider(height: 18, color: p.border),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(_tips[i].$1, size: 18, color: p.brand),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _tips[i].$2,
-                          style: GoogleFonts.dmSans(
-                            fontWeight: FontWeight.w700,
-                            color: p.textPrimary,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _tips[i].$3,
-                          style: GoogleFonts.dmSans(
-                            color: p.textSecondary,
-                            fontSize: 12.5,
-                          ),
-                        ),
-                      ],
-                    ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(tip.$1, size: 18, color: p.brand),
+                const Spacer(),
+                Text(
+                  tip.$2,
+                  style: GoogleFonts.dmSans(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: p.textPrimary,
                   ),
-                ],
-              ),
-            ],
-          ],
-        ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  tip.$3,
+                  style: GoogleFonts.dmSans(
+                    fontSize: 11,
+                    color: p.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

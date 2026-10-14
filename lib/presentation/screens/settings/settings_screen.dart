@@ -231,7 +231,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: Icons.record_voice_over_rounded,
                   title: 'Voice alerts',
                   subtitle: config.voiceAlerts
-                      ? 'Spoken warnings (needs microphone permission)'
+                      ? 'Spoken warnings during a drive'
                       : 'Visual warnings only',
                   value: config.voiceAlerts,
                   onChanged: settings.setVoiceAlerts,

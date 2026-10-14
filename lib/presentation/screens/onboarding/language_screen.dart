@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/routes.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_palette.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../data/models/language_preference.dart';
 import '../../../data/services/tts_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../widgets/brand_buttons.dart';
+import '../../widgets/glass_tile.dart';
+import '../../widgets/line_icon.dart';
 import '../../widgets/screen_back_button.dart';
 
 class LanguageScreen extends StatefulWidget {
@@ -24,6 +27,12 @@ class _LanguageScreenState extends State<LanguageScreen> {
   final _tts = TtsService();
   bool _speaking = false;
   bool _saving = false;
+
+  static const _shellGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFF083936), Color(0xFF062E2B)],
+  );
 
   @override
   void dispose() {
@@ -48,8 +57,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
           const SnackBar(
             content: Text(
               'Urdu voice not found on this phone. '
-              'Install Urdu in Settings → System → Language & input → '
-              'Text-to-speech → install voice data.',
+              'Install Urdu in Settings then Text-to-speech voice data.',
             ),
             duration: Duration(seconds: 6),
           ),
@@ -73,76 +81,98 @@ class _LanguageScreenState extends State<LanguageScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
+    final options = LanguagePreference.values;
 
-    return Scaffold(
-      backgroundColor: p.background,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const ScreenBackButton(),
-                      Text(
-                        'Voice language',
-                        style: GoogleFonts.sora(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          color: p.textPrimary,
-                        ),
+    return Theme(
+      data: AppTheme.dark(),
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: AppColors.forest,
+          systemNavigationBarIconBrightness: Brightness.light,
+        ),
+        child: Scaffold(
+          backgroundColor: AppColors.forest,
+          body: DecoratedBox(
+            decoration: const BoxDecoration(gradient: _shellGradient),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 8, 22, 18),
+                child: Column(
+                  children: [
+                    const SizedBox(
+                      height: 44,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: ScreenBackButton(bottomSpacing: 0),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'How should alerts sound?',
-                        style: GoogleFonts.dmSans(
-                          fontSize: 15,
-                          color: p.textSecondary,
-                        ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Voice alerts',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.white,
+                        height: 1.2,
                       ),
-                      const SizedBox(height: 28),
-                      for (final lang in LanguagePreference.values)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _LanguageOption(
-                            language: lang,
-                            selected: _selected == lang,
-                            recommended:
-                                lang == LanguagePreference.bilingual,
-                            onTap: () => _select(lang),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Spoken alerts use the phone speaker. No microphone is needed.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        color: AppColors.white.withValues(alpha: 0.68),
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          for (var i = 0; i < options.length; i++) ...[
+                            _LanguageCard(
+                              language: options[i],
+                              selected: _selected == options[i],
+                              recommended:
+                                  options[i] == LanguagePreference.bilingual,
+                              onTap: () => _select(options[i]),
+                            ),
+                            if (i < options.length - 1)
+                              const SizedBox(height: 10),
+                          ],
+                          const SizedBox(height: 12),
+                          _TestVoiceCard(
+                            speaking: _speaking,
+                            onTap: _speaking ? null : _testVoice,
                           ),
-                        ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: _speaking ? null : _testVoice,
-                        icon: Icon(
-                          _speaking
-                              ? Icons.volume_up_rounded
-                              : Icons.play_arrow_rounded,
-                        ),
-                        label: Text(
-                          _speaking ? 'Playing…' : 'Test voice alert',
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: p.brand,
-                        ),
+                          const SizedBox(height: 12),
+                          GlassTile(
+                            child: Text(
+                              'You still get on-screen alerts if voice is off.',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                height: 1.4,
+                                color: AppColors.white.withValues(alpha: 0.62),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 16),
+                    MintButton(
+                      label: 'Continue',
+                      loading: _saving,
+                      onPressed: _continue,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
-              GradientButton(
-                label: 'Continue',
-                loading: _saving,
-                onPressed: _continue,
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -150,8 +180,8 @@ class _LanguageScreenState extends State<LanguageScreen> {
   }
 }
 
-class _LanguageOption extends StatelessWidget {
-  const _LanguageOption({
+class _LanguageCard extends StatelessWidget {
+  const _LanguageCard({
     required this.language,
     required this.selected,
     required this.recommended,
@@ -163,93 +193,155 @@ class _LanguageOption extends StatelessWidget {
   final bool recommended;
   final VoidCallback onTap;
 
+  String get _code {
+    switch (language) {
+      case LanguagePreference.english:
+        return 'EN';
+      case LanguagePreference.urdu:
+        return 'UR';
+      case LanguagePreference.bilingual:
+        return 'Both';
+    }
+  }
+
+  String get _subtitle {
+    switch (language) {
+      case LanguagePreference.english:
+        return 'Alerts in English only';
+      case LanguagePreference.urdu:
+        return 'Alerts in Urdu only';
+      case LanguagePreference.bilingual:
+        return 'English then Urdu';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-    final bg = selected ? p.brand : p.surface;
-    final fg = selected ? AppColors.white : p.textPrimary;
-    final muted = selected
-        ? AppColors.white.withValues(alpha: 0.85)
-        : p.textSecondary;
-
-    return Material(
-      color: bg,
-      borderRadius: BorderRadius.circular(16),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: selected ? p.brand : p.border,
-              width: selected ? 1.8 : 1,
+    return GlassTile(
+      selected: selected,
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.white.withValues(alpha: 0.10),
+              ),
+            ),
+            child: Text(
+              _code,
+              style: GoogleFonts.inter(
+                fontSize: language == LanguagePreference.bilingual ? 11 : 13,
+                fontWeight: FontWeight.w600,
+                color: selected ? AppColors.mint : AppColors.white,
+              ),
             ),
           ),
-          child: Row(
-            children: [
-              Icon(
-                selected
-                    ? Icons.check_circle_rounded
-                    : Icons.radio_button_off_rounded,
-                color: selected ? AppColors.white : p.textSecondary,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          language.label,
-                          style: GoogleFonts.dmSans(
-                            fontSize: 15.5,
-                            fontWeight: FontWeight.w700,
-                            color: fg,
-                          ),
-                        ),
-                        if (recommended) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? AppColors.white.withValues(alpha: 0.22)
-                                  : p.brandSoft,
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                            child: Text(
-                              'Recommended',
-                              style: GoogleFonts.dmSans(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: selected ? AppColors.white : p.brand,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 2),
                     Text(
-                      language.samplePhrase,
-                      style: GoogleFonts.dmSans(
-                        fontSize: 12.5,
-                        color: muted,
+                      language.label,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.white,
                       ),
                     ),
+                    if (recommended) ...[
+                      const SizedBox(width: 8),
+                      const QuietChip(label: 'Recommended', emphasized: true),
+                    ],
                   ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  _subtitle,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: AppColors.white.withValues(alpha: 0.62),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+          Icon(
+            selected ? Icons.check_rounded : Icons.circle_outlined,
+            color: selected
+                ? AppColors.mint
+                : AppColors.white.withValues(alpha: 0.28),
+            size: 20,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TestVoiceCard extends StatelessWidget {
+  const _TestVoiceCard({required this.speaking, required this.onTap});
+
+  final bool speaking;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassTile(
+      onTap: onTap,
+      child: Row(
+        children: [
+          LineIconBox(
+            kind: LineIconKind.speaker,
+            accent: speaking,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  speaking ? 'Playing sample' : 'Test voice alert',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.white,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Hear how alerts will sound',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: AppColors.white.withValues(alpha: 0.62),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (speaking)
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.mint,
+              ),
+            )
+          else
+            Icon(
+              Icons.play_arrow_rounded,
+              color: AppColors.mint.withValues(alpha: 0.9),
+            ),
+        ],
       ),
     );
   }

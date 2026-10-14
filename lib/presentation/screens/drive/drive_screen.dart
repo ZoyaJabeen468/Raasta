@@ -22,15 +22,21 @@ import 'widgets/drive_viewfinder.dart';
 import 'widgets/trip_summary_sheet.dart';
 
 /// Live drive: camera viewfinder, GPS HUD, spoken hazard / speed alerts.
-class DriveScreen extends StatelessWidget {
+class DriveScreen extends StatefulWidget {
   const DriveScreen({super.key});
 
   @override
+  State<DriveScreen> createState() => _DriveScreenState();
+}
+
+class _DriveScreenState extends State<DriveScreen> {
+  late final CameraYoloHazardDetector _detector = CameraYoloHazardDetector();
+
+  @override
   Widget build(BuildContext context) {
-    final detector = CameraYoloHazardDetector();
     return ChangeNotifierProvider(
-      create: (_) => DriveProvider(detector: detector),
-      child: _DriveView(detector: detector),
+      create: (_) => DriveProvider(detector: _detector),
+      child: _DriveView(detector: _detector),
     );
   }
 }
@@ -70,9 +76,7 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _drive?.refreshMicrophonePermission();
-    }
+    _drive?.didChangeAppLifecycleState(state);
   }
 
   Future<void> _begin() async {
@@ -81,6 +85,7 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
     await drive.configure(
       language: settings.language,
       voiceEnabled: settings.voiceAlerts,
+      hazardAlerts: settings.hazardAlerts,
       wrongWayDemoMode: settings.wrongWayDemoMode,
     );
     _drive = drive..addListener(_onDriveChanged);
@@ -216,10 +221,10 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
                     child: Row(
                       children: [
-                        _RoundButton(
+                        _GlassIconButton(
                           icon: Icons.close_rounded,
                           label: 'End drive',
                           onTap: _endDrive,
@@ -234,9 +239,9 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: DriveHud(
                       speedKph: drive.speedKph,
                       speedLimitKph: DriveProvider.speedLimitKph,
@@ -246,8 +251,6 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
                       hazardCount: drive.hazardCount,
                       usingGps: drive.usingGps,
                       arming: drive.isArming,
-                      onStartNow:
-                          drive.isArming ? () => drive.forceStartTrip() : null,
                     ),
                   ),
                   Expanded(
@@ -270,21 +273,22 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
                     child: DriveAlertToast(
                       alert: drive.activeAlert,
                       onDismiss: drive.dismissActiveAlert,
                     ),
                   ),
-                  _Controls(
-                    paused: drive.isPaused,
-                    muted: !drive.voiceEnabled,
-                    micDenied: !drive.micGranted,
-                    onPause: drive.isArming ? null : drive.togglePause,
-                    onToggleVoice: drive.toggleVoice,
-                    onStop: _endDrive,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+                    child: _Controls(
+                      paused: drive.isPaused,
+                      muted: !drive.voiceEnabled,
+                      onPause: drive.isArming ? null : drive.togglePause,
+                      onToggleVoice: drive.toggleVoice,
+                      onStop: _endDrive,
+                    ),
                   ),
-                  const SizedBox(height: 20),
                 ],
               ),
             ),
@@ -317,17 +321,15 @@ class _DriveCenterChips extends StatelessWidget {
                 demo: drive.wrongWayDemoMode,
               ),
             ],
-            if (kDebugMode && drive.usingRealtimeModel) ...[
+            if (kDebugMode &&
+                drive.usingRealtimeModel &&
+                detector.debugPeakScore >= 0.45) ...[
               const SizedBox(height: 10),
               _AiDebugChip(
                 label: detector.debugPeakLabel,
                 score: detector.debugPeakScore,
                 info: detector.debugInfo,
               ),
-            ],
-            if (!drive.micGranted) ...[
-              const SizedBox(height: 16),
-              const _VisualOnlyChip(),
             ],
           ],
         ),
@@ -353,21 +355,22 @@ class _WrongWayProgressChip extends StatelessWidget {
     final left = (need - seconds).clamp(0, need);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.amber.withValues(alpha: 0.55)),
+        color: const Color(0xCC12171C),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.amber.withValues(alpha: 0.45)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.u_turn_left_rounded, color: AppColors.amber, size: 22),
+          Icon(Icons.u_turn_left_rounded,
+              color: AppColors.amber.withValues(alpha: 0.95), size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               demo
-                  ? 'Wrong-way demo… alert in ${left}s'
-                  : 'Checking direction… ${left}s',
+                  ? 'Wrong-way demo · alert in ${left}s'
+                  : 'Checking direction · ${left}s',
               style: GoogleFonts.dmSans(
                 color: Colors.white,
                 fontSize: 13,
@@ -415,37 +418,6 @@ class _AiDebugChip extends StatelessWidget {
   }
 }
 
-class _VisualOnlyChip extends StatelessWidget {
-  const _VisualOnlyChip();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: AppColors.amber.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.mic_off_rounded, color: AppColors.amber, size: 16),
-          const SizedBox(width: 8),
-          Text(
-            'Mic denied · visual alerts only',
-            style: GoogleFonts.dmSans(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _LiveBadge extends StatelessWidget {
   const _LiveBadge({
     required this.paused,
@@ -480,16 +452,16 @@ class _LiveBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.35),
+        color: const Color(0xCC12171C),
         borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: color.withValues(alpha: 0.6)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 8,
-            height: 8,
+            width: 7,
+            height: 7,
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 7),
@@ -497,9 +469,9 @@ class _LiveBadge extends StatelessWidget {
             label,
             style: GoogleFonts.dmSans(
               color: Colors.white,
-              fontSize: 11.5,
+              fontSize: 11,
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
+              letterSpacing: 0.4,
             ),
           ),
         ],
@@ -512,7 +484,6 @@ class _Controls extends StatelessWidget {
   const _Controls({
     required this.paused,
     required this.muted,
-    required this.micDenied,
     required this.onPause,
     required this.onToggleVoice,
     required this.onStop,
@@ -520,7 +491,6 @@ class _Controls extends StatelessWidget {
 
   final bool paused;
   final bool muted;
-  final bool micDenied;
   final VoidCallback? onPause;
   final VoidCallback onToggleVoice;
   final VoidCallback onStop;
@@ -529,74 +499,64 @@ class _Controls extends StatelessWidget {
   Widget build(BuildContext context) {
     final pauseEnabled = onPause != null;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _RoundButton(
-          icon: paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-          label: !pauseEnabled
-              ? 'Pause unavailable while waiting for trip to start'
-              : paused
-                  ? 'Resume drive'
-                  : 'Pause drive',
-          onTap: onPause,
-          size: 60,
-          tint: pauseEnabled ? Colors.white : Colors.white38,
-          enabled: pauseEnabled,
-        ),
-        const SizedBox(width: 28),
-        Semantics(
-          button: true,
-          label: 'Stop drive',
-          child: GestureDetector(
-            onTap: onStop,
-            child: Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: AppColors.alert,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.alert.withValues(alpha: 0.5),
-                    blurRadius: 22,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.stop_rounded,
-                color: Colors.white,
-                size: 34,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xE012171C),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _GlassIconButton(
+            icon: paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+            label: !pauseEnabled
+                ? 'Pause unavailable while waiting for trip to start'
+                : paused
+                    ? 'Resume drive'
+                    : 'Pause drive',
+            onTap: onPause,
+            size: 48,
+            tint: pauseEnabled ? Colors.white : Colors.white38,
+            enabled: pauseEnabled,
+          ),
+          Semantics(
+            button: true,
+            label: 'Stop drive',
+            child: Material(
+              color: AppColors.alert,
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onStop,
+                child: const SizedBox(
+                  width: 58,
+                  height: 58,
+                  child: Icon(Icons.stop_rounded, color: Colors.white, size: 28),
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 28),
-        _RoundButton(
-          icon: muted || micDenied
-              ? Icons.volume_off_rounded
-              : Icons.volume_up_rounded,
-          label: micDenied
-              ? 'Microphone denied — visual only'
-              : muted
-                  ? 'Unmute voice alerts'
-                  : 'Mute voice alerts',
-          onTap: onToggleVoice,
-          size: 60,
-          tint: muted || micDenied ? AppColors.amber : Colors.white,
-        ),
-      ],
+          _GlassIconButton(
+            icon: muted ? Icons.volume_off_outlined : Icons.volume_up_outlined,
+            label: muted ? 'Unmute voice alerts' : 'Mute voice alerts',
+            onTap: onToggleVoice,
+            size: 48,
+            tint: muted ? AppColors.amber : Colors.white,
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _RoundButton extends StatelessWidget {
-  const _RoundButton({
+class _GlassIconButton extends StatelessWidget {
+  const _GlassIconButton({
     required this.icon,
     required this.label,
     this.onTap,
-    this.size = 44,
+    this.size = 40,
     this.tint = Colors.white,
     this.enabled = true,
   });
@@ -617,7 +577,7 @@ class _RoundButton extends StatelessWidget {
       child: Opacity(
         opacity: enabled ? 1 : 0.45,
         child: Material(
-          color: Colors.black.withValues(alpha: enabled ? 0.4 : 0.25),
+          color: Colors.white.withValues(alpha: enabled ? 0.08 : 0.04),
           shape: const CircleBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -625,7 +585,7 @@ class _RoundButton extends StatelessWidget {
             child: SizedBox(
               width: size,
               height: size,
-              child: Icon(icon, color: tint, size: size * 0.5),
+              child: Icon(icon, color: tint, size: size * 0.48),
             ),
           ),
         ),

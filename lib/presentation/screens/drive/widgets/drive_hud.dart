@@ -5,7 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/speed_band.dart';
 
-/// Top status strip over the viewfinder: live speed, limit, time, distance.
+/// Compact glass HUD over the viewfinder: speed, limit, trip metrics.
 class DriveHud extends StatelessWidget {
   const DriveHud({
     super.key,
@@ -34,217 +34,225 @@ class DriveHud extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final metrics = Row(
-      children: [
-        Expanded(
-          child: _Metric(
-            icon: Icons.schedule_rounded,
-            label: 'Time',
-            value: Format.duration(elapsedSeconds),
-            compact: compact,
-          ),
-        ),
-        Expanded(
-          child: _Metric(
-            icon: Icons.straighten_rounded,
-            label: 'Distance',
-            value: Format.distance(distanceMeters),
-            compact: compact,
-          ),
-        ),
-        Expanded(
-          child: _Metric(
-            icon: Icons.warning_amber_rounded,
-            label: 'Hazards',
-            value: '$hazardCount',
-            tint: hazardCount > 0 ? AppColors.amber : null,
-            compact: compact,
-          ),
-        ),
-      ],
-    );
-
-    return Column(
-      children: [
-        _Speedometer(
-          speedKph: speedKph,
-          speedLimitKph: speedLimitKph,
-          band: band,
-          usingGps: usingGps,
-          arming: arming,
-          compact: compact,
-          onStartNow: onStartNow,
-        ),
-        SizedBox(height: compact ? 8 : 14),
-        metrics,
-      ],
-    );
-  }
-}
-
-class _Speedometer extends StatelessWidget {
-  const _Speedometer({
-    required this.speedKph,
-    required this.speedLimitKph,
-    required this.band,
-    required this.usingGps,
-    required this.arming,
-    this.compact = false,
-    this.onStartNow,
-  });
-
-  final double speedKph;
-  final int speedLimitKph;
-  final SpeedBand band;
-  final bool usingGps;
-  final bool arming;
-  final bool compact;
-  final VoidCallback? onStartNow;
-
-  @override
-  Widget build(BuildContext context) {
-    final tint = band.color;
-    final speedSize = compact ? 28.0 : 36.0;
+    final pad = compact ? 12.0 : 14.0;
 
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 14 : 18,
-        vertical: compact ? 10 : 12,
-      ),
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(pad, pad, pad, compact ? 10 : 12),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.4),
+        color: const Color(0xCC12171C),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: tint.withValues(alpha: 0.65), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: tint.withValues(alpha: 0.22),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        border: Border.all(color: AppColors.mint.withValues(alpha: 0.22)),
       ),
       child: Column(
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                '${speedKph.round()}',
-                style: GoogleFonts.sora(
-                  color: tint,
-                  fontSize: speedSize,
-                  fontWeight: FontWeight.w700,
-                  height: 1,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'km/h',
-                style: GoogleFonts.dmSans(
-                  color: tint.withValues(alpha: 0.85),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Container(
-                width: 1,
-                height: 28,
-                color: Colors.white24,
-              ),
-              const SizedBox(width: 14),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'LIMIT',
-                    style: GoogleFonts.dmSans(
-                      color: Colors.white54,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                  Text(
-                    '$speedLimitKph',
-                    style: GoogleFonts.sora(
-                      color: Colors.white,
-                      fontSize: compact ? 16 : 18,
-                      fontWeight: FontWeight.w700,
-                      height: 1.1,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+          _SpeedRow(
+            speedKph: speedKph,
+            speedLimitKph: speedLimitKph,
+            band: band,
+            compact: compact,
           ),
-          SizedBox(height: compact ? 6 : 8),
-          if (arming) ...[
-            Text(
-              compact
-                  ? 'Scanning · tap Start below'
-                  : 'AI is scanning · trip starts above ${DriveHudConstants.tripStartHint} km/h',
-              style: GoogleFonts.dmSans(
-                color: Colors.white70,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            if (onStartNow != null) ...[
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: onStartNow,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.teal.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: Text(
-                    'Start trip now (demo)',
-                    style: GoogleFonts.dmSans(
-                      color: Colors.white,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ] else
+          SizedBox(height: compact ? 8 : 10),
+          if (arming)
+            _ArmingRow(compact: compact, onStartNow: onStartNow)
+          else
             Text(
               usingGps
                   ? _bandLabel(band)
                   : 'Simulated speed · enable location for GPS',
               style: GoogleFonts.dmSans(
-                color: Colors.white70,
-                fontSize: 11.5,
+                color: Colors.white60,
+                fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
             ),
+          SizedBox(height: compact ? 10 : 12),
+          Divider(height: 1, color: Colors.white.withValues(alpha: 0.08)),
+          SizedBox(height: compact ? 10 : 12),
+          Row(
+            children: [
+              Expanded(
+                child: _Metric(
+                  icon: Icons.schedule_outlined,
+                  label: 'Time',
+                  value: Format.duration(elapsedSeconds),
+                  compact: compact,
+                ),
+              ),
+              _VertRule(),
+              Expanded(
+                child: _Metric(
+                  icon: Icons.straighten_outlined,
+                  label: 'Distance',
+                  value: Format.distance(distanceMeters),
+                  compact: compact,
+                ),
+              ),
+              _VertRule(),
+              Expanded(
+                child: _Metric(
+                  icon: Icons.warning_amber_outlined,
+                  label: 'Hazards',
+                  value: '$hazardCount',
+                  tint: hazardCount > 0 ? AppColors.amber : null,
+                  compact: compact,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
   String _bandLabel(SpeedBand band) {
-    switch (band) {
-      case SpeedBand.safe:
-        return 'Safe speed';
-      case SpeedBand.caution:
-        return 'Approaching limit';
-      case SpeedBand.over:
-        return 'Over speed limit';
-    }
+    return switch (band) {
+      SpeedBand.safe => 'Within limit',
+      SpeedBand.caution => 'Near limit',
+      SpeedBand.over => 'Over limit',
+    };
+  }
+}
+
+class _SpeedRow extends StatelessWidget {
+  const _SpeedRow({
+    required this.speedKph,
+    required this.speedLimitKph,
+    required this.band,
+    required this.compact,
+  });
+
+  final double speedKph;
+  final int speedLimitKph;
+  final SpeedBand band;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = band.color;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          '${speedKph.round()}',
+          style: GoogleFonts.sora(
+            color: tint,
+            fontSize: compact ? 34 : 42,
+            fontWeight: FontWeight.w700,
+            height: 1,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 6, bottom: 6),
+          child: Text(
+            'km/h',
+            style: GoogleFonts.dmSans(
+              color: tint.withValues(alpha: 0.85),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                'LIMIT',
+                style: GoogleFonts.dmSans(
+                  color: Colors.white54,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '$speedLimitKph',
+                style: GoogleFonts.sora(
+                  color: Colors.white,
+                  fontSize: compact ? 16 : 18,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ArmingRow extends StatelessWidget {
+  const _ArmingRow({required this.compact, this.onStartNow});
+
+  final bool compact;
+  final VoidCallback? onStartNow;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          compact
+              ? 'Scanning · tap Start below'
+              : 'Scanning · trip starts above ${DriveHudConstants.tripStartHint} km/h',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.dmSans(
+            color: Colors.white60,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        if (onStartNow != null) ...[
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: onStartNow,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.teal,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Start trip now',
+                style: GoogleFonts.dmSans(
+                  color: Colors.white,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
 
 /// Shared constants referenced by the HUD subtitle without importing provider.
 abstract final class DriveHudConstants {
   static const tripStartHint = 5;
+}
+
+class _VertRule extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 28,
+      color: Colors.white.withValues(alpha: 0.08),
+    );
+  }
 }
 
 class _Metric extends StatelessWidget {
@@ -268,13 +276,13 @@ class _Metric extends StatelessWidget {
 
     return Column(
       children: [
-        Icon(icon, size: compact ? 14 : 16, color: color.withValues(alpha: 0.85)),
-        SizedBox(height: compact ? 3 : 5),
+        Icon(icon, size: compact ? 14 : 15, color: color.withValues(alpha: 0.75)),
+        SizedBox(height: compact ? 3 : 4),
         Text(
           value,
           style: GoogleFonts.sora(
             color: color,
-            fontSize: compact ? 13 : 15,
+            fontSize: compact ? 13 : 14,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -282,8 +290,8 @@ class _Metric extends StatelessWidget {
         Text(
           label,
           style: GoogleFonts.dmSans(
-            color: Colors.white60,
-            fontSize: compact ? 10 : 11,
+            color: Colors.white54,
+            fontSize: 10.5,
           ),
         ),
       ],
