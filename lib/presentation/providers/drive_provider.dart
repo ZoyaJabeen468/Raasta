@@ -57,8 +57,8 @@ class DriveProvider extends ChangeNotifier {
   final WrongWayService _wrongWay;
   final Random _random;
 
-  /// Default limit until Module 3 supplies sign-based limits.
-  static const speedLimitKph = 60;
+  /// Fallback until a speed-limit sign is confirmed this trip.
+  static const defaultSpeedLimitKph = 60;
 
   /// Voice when speed exceeds limit by this margin (km/h).
   static const overspeedMarginKph = 3;
@@ -97,6 +97,7 @@ class DriveProvider extends ChangeNotifier {
   double _distanceMeters = 0;
   double _speedKph = 0;
   double _maxSpeedKph = 0;
+  int _speedLimitKph = defaultSpeedLimitKph;
   int _overspeedCount = 0;
   bool _wasOverspeed = false;
   bool _usingGps = false;
@@ -125,6 +126,7 @@ class DriveProvider extends ChangeNotifier {
   double get speedKph => _speedKph;
   double get maxSpeedKph => _maxSpeedKph;
   int get overspeedCount => _overspeedCount;
+  int get speedLimitKph => _speedLimitKph;
   bool get isOverspeed => _speedKph > speedLimitKph;
   bool get usingGps => _usingGps;
   bool get hazardAlertsEnabled => _hazardAlerts;
@@ -439,6 +441,7 @@ class DriveProvider extends ChangeNotifier {
     _signCardTimer?.cancel();
     _lastSign = null;
     _visibleSign = null;
+    _speedLimitKph = defaultSpeedLimitKph;
     _wrongWay.reset();
     _wrongWay.demoForceConflict = _wrongWayDemo;
   }
@@ -649,6 +652,10 @@ class DriveProvider extends ChangeNotifier {
 
     _lastSign = sign;
     _visibleSign = sign;
+    final limit = sign.sign.speedLimit;
+    if (limit != null && limit > 0) {
+      _speedLimitKph = limit;
+    }
     _signCardTimer?.cancel();
     _signCardTimer = Timer(signCardDuration, () {
       if (!identical(_visibleSign, sign)) return;

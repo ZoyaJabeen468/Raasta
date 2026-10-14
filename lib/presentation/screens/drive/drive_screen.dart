@@ -244,7 +244,7 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: DriveHud(
                       speedKph: drive.speedKph,
-                      speedLimitKph: DriveProvider.speedLimitKph,
+                      speedLimitKph: drive.speedLimitKph,
                       band: drive.speedBand,
                       elapsedSeconds: drive.elapsedSeconds,
                       distanceMeters: drive.distanceMeters,
