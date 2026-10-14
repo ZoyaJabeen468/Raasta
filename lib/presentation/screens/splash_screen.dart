@@ -29,9 +29,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   bool _failed = false;
 
-  static const _minSplash = Duration(milliseconds: 4600);
-  static const _minReadySplash = Duration(milliseconds: 3600);
-  static const _maxColdSplash = Duration(milliseconds: 5600);
+  static const _minSplash = Duration(milliseconds: 2200);
+  static const _minReadySplash = Duration(milliseconds: 1600);
+  static const _maxColdSplash = Duration(milliseconds: 2800);
 
   @override
   void initState() {
@@ -41,14 +41,14 @@ class _SplashScreenState extends State<SplashScreen>
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.light,
-        systemNavigationBarColor: Color(0xFF0B5E57),
+        systemNavigationBarColor: Color(0xFF062E2B),
         systemNavigationBarIconBrightness: Brightness.light,
       ),
     );
 
     _enter = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2400),
+      duration: const Duration(milliseconds: 1400),
     );
     _exit = AnimationController(
       vsync: this,
@@ -146,7 +146,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.tealDeep,
+      backgroundColor: AppColors.forest,
       body: FadeTransition(
         opacity: Tween<double>(begin: 1, end: 0).animate(
           CurvedAnimation(parent: _exit, curve: Curves.easeInOut),
@@ -165,7 +165,7 @@ class _SplashScreenState extends State<SplashScreen>
                       ScaleTransition(
                         scale: _logoScale,
                         child: const RaastaLogo(
-                          size: 120,
+                          size: 108,
                           circular: true,
                           filled: false,
                         ),
@@ -190,7 +190,7 @@ class _SplashScreenState extends State<SplashScreen>
                             'Know the road before you reach it.',
                             textAlign: TextAlign.center,
                             style: GoogleFonts.dmSans(
-                              color: AppColors.white.withValues(alpha: 0.88),
+                              color: AppColors.mint.withValues(alpha: 0.88),
                               fontSize: 14.5,
                               letterSpacing: 0.2,
                             ),

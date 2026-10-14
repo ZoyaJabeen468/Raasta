@@ -42,7 +42,7 @@ class DriveHud extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xCC12171C),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        border: Border.all(color: AppColors.mint.withValues(alpha: 0.22)),
       ),
       child: Column(
         children: [

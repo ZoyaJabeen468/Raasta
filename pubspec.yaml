@@ -72,22 +72,22 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: assets/branding/raasta_icon_1024.png
-  adaptive_icon_background: "#0B5E57"
+  adaptive_icon_background: "#062E2B"
   adaptive_icon_foreground: assets/branding/raasta_icon_1024.png
-  adaptive_icon_foreground_inset: 16
+  adaptive_icon_foreground_inset: 18
   remove_alpha_ios: true
-  background_color_ios: "#0B5E57"
+  background_color_ios: "#062E2B"
 
 flutter_native_splash:
-  color: "#0B5E57"
+  color: "#062E2B"
   image: assets/branding/raasta_splash_mark.png
   android: true
   ios: true
   fullscreen: false
   android_12:
-    color: "#0B5E57"
+    color: "#062E2B"
     image: assets/branding/raasta_splash_mark.png
-    icon_background_color: "#0B5E57"
+    icon_background_color: "#062E2B"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -105,6 +105,10 @@ flutter:
     - assets/branding/raasta_icon_1024.png
     - assets/branding/raasta_splash_logo.png
     - assets/branding/raasta_splash_mark.png
+    - assets/branding/intro/hazards.jpg
+    - assets/branding/intro/signs.jpg
+    - assets/branding/intro/life.jpg
+    - assets/branding/intro/trips.jpg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

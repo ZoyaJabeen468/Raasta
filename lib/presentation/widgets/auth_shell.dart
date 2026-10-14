@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_palette.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/widgets/raasta_logo.dart';
 import 'brand_buttons.dart';
 
-/// Compact brand header + white form sheet used by Welcome, Login, and Sign up.
+/// Dark teal auth chrome, matched to onboarding. Form layout is unchanged.
 class AuthShell extends StatelessWidget {
   const AuthShell({
     super.key,
@@ -16,60 +20,76 @@ class AuthShell extends StatelessWidget {
   final Widget child;
   final Widget? leading;
 
+  static const _overlay = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: AppColors.forest,
+    systemNavigationBarIconBrightness: Brightness.light,
+  );
+
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-    final topPad = MediaQuery.paddingOf(context).top;
+    return Theme(
+      data: AppTheme.dark(),
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: _overlay,
+        child: Builder(
+          builder: (context) {
+            final p = context.palette;
+            final topPad = MediaQuery.paddingOf(context).top;
 
-    return Scaffold(
-      backgroundColor: p.background,
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.fromLTRB(24, topPad + 14, 24, 28),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [p.washTop, p.brandSoft],
-              ),
-            ),
-            child: Row(
-              children: [
-                if (leading != null) ...[
-                  leading!,
-                  const SizedBox(width: 8),
-                ],
-                const RaastaLogo(size: 36),
-                const SizedBox(width: 10),
-                RaastaWordmark(fontSize: 16, color: p.brand),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Transform.translate(
-              offset: const Offset(0, -16),
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: p.surface,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(28),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: p.shadow,
-                      blurRadius: 18,
-                      offset: const Offset(0, -4),
+            return Scaffold(
+              backgroundColor: AppColors.forest,
+              body: DecoratedBox(
+                decoration: const BoxDecoration(
+                  gradient: AppColors.splashGradient,
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(24, topPad + 14, 24, 12),
+                      child: Row(
+                        children: [
+                          if (leading != null) ...[
+                            leading!,
+                            const SizedBox(width: 8),
+                          ],
+                          const RaastaLogo(
+                            size: 40,
+                            circular: true,
+                            filled: false,
+                          ),
+                          const SizedBox(width: 10),
+                          const RaastaWordmark(
+                            fontSize: 16,
+                            color: AppColors.white,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: p.surface.withValues(alpha: 0.92),
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(AppRadii.xl),
+                          ),
+                          border: Border(
+                            top: BorderSide(
+                              color: AppColors.mint.withValues(alpha: 0.18),
+                            ),
+                          ),
+                        ),
+                        child: child,
+                      ),
                     ),
                   ],
                 ),
-                child: child,
               ),
-            ),
-          ),
-        ],
+            );
+          },
+        ),
       ),
     );
   }

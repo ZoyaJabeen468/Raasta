@@ -28,7 +28,6 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
   final _permissions = PermissionService();
   bool? _cameraOk;
   bool? _locationOk;
-  bool? _micOk;
 
   @override
   void initState() {
@@ -51,12 +50,10 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
   Future<void> _refreshReady() async {
     final cam = await _permissions.statusOf(AppPermissionKind.camera);
     final loc = await _permissions.statusOf(AppPermissionKind.location);
-    final mic = await _permissions.statusOf(AppPermissionKind.microphone);
     if (!mounted) return;
     setState(() {
       _cameraOk = cam.isGranted;
       _locationOk = loc.isGranted;
-      _micOk = mic.isGranted;
     });
   }
 
@@ -89,8 +86,7 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
     final greeting = GreetingHeader.greetingFor(now);
     final cameraOk = _cameraOk == true;
     final locationOk = _locationOk == true;
-    final micOk = _micOk == true;
-    final voiceOk = settings.voiceAlerts && micOk;
+    final voiceOk = settings.voiceAlerts;
 
     return SafeArea(
       child: ListView(
@@ -150,11 +146,9 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
                 label: 'Voice',
                 ok: voiceOk,
                 onTap: () async {
-                  if (!micOk) {
-                    await _fixPermission(AppPermissionKind.microphone);
-                  } else if (!settings.voiceAlerts) {
-                    await context.read<SettingsProvider>().setVoiceAlerts(true);
-                  }
+                  await context.read<SettingsProvider>().setVoiceAlerts(
+                    !settings.voiceAlerts,
+                  );
                 },
               ),
             ],
@@ -196,7 +190,7 @@ class _WelcomeHero extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         gradient: AppColors.driveGradient,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

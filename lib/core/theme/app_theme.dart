@@ -99,7 +99,7 @@ abstract final class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.tealDeep,
+          backgroundColor: AppColors.forest,
           foregroundColor: AppColors.white,
           disabledBackgroundColor: p.surfaceAlt,
           disabledForegroundColor: p.textSecondary,

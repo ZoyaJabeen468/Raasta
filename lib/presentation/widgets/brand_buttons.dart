@@ -35,7 +35,7 @@ class BrandButton extends StatelessWidget {
           disabledForegroundColor: AppColors.white,
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(16),
           ),
           textStyle: GoogleFonts.dmSans(
             fontSize: 15.5,
@@ -49,6 +49,59 @@ class BrandButton extends StatelessWidget {
                 child: CircularProgressIndicator(
                   strokeWidth: 2.1,
                   color: AppColors.white,
+                ),
+              )
+            : Text(label),
+      ),
+    );
+  }
+}
+
+/// Mint fill, dark teal label. Used on Permissions and Voice alerts.
+class MintButton extends StatelessWidget {
+  const MintButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.loading = false,
+    this.height = 52,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final bool loading;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null && !loading;
+
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: enabled ? onPressed : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.mint,
+          foregroundColor: AppColors.forest,
+          disabledBackgroundColor: AppColors.mint.withValues(alpha: 0.4),
+          disabledForegroundColor: AppColors.forest,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: GoogleFonts.inter(
+            fontSize: 15.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        child: loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.1,
+                  color: AppColors.forest,
                 ),
               )
             : Text(label),

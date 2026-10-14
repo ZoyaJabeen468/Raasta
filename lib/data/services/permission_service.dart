@@ -8,27 +8,23 @@ class PermissionService {
     return _map(kind).status;
   }
 
-  /// FE-6: voice alerts require microphone; deny → visual-only.
-  Future<bool> isMicrophoneGranted() async {
-    if (kIsWeb) return true;
-    final status = await statusOf(AppPermissionKind.microphone);
-    return status.isGranted;
-  }
-
   Future<PermissionStatus> request(AppPermissionKind kind) async {
     if (kIsWeb) {
       // Browser cannot grant native camera/location the same way.
-      // Mark as granted for UI flow; real grants happen on Android.
       return PermissionStatus.granted;
     }
     return _map(kind).request();
   }
 
+  /// Camera and location for Drive. Notifications are optional.
+  /// Microphone is not requested: spoken alerts use TTS, not the mic.
   Future<Map<AppPermissionKind, PermissionStatus>> requestCore() async {
     final results = <AppPermissionKind, PermissionStatus>{};
-    for (final kind in AppPermissionKind.values) {
-      results[kind] = await request(kind);
-    }
+    results[AppPermissionKind.camera] = await request(AppPermissionKind.camera);
+    results[AppPermissionKind.location] =
+        await request(AppPermissionKind.location);
+    results[AppPermissionKind.notifications] =
+        await request(AppPermissionKind.notifications);
     return results;
   }
 

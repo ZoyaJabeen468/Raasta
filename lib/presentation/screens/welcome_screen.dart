@@ -83,11 +83,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-
     return AuthShell(
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final p = context.palette;
           return SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
             child: ConstrainedBox(

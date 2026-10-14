@@ -36,7 +36,7 @@ class RaastaLogo extends StatelessWidget {
       path,
       width: size,
       height: size,
-      fit: BoxFit.cover,
+      fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       gaplessPlayback: true,
     );

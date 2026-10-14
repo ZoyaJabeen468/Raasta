@@ -77,7 +77,6 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
     final auth = context.watch<AuthProvider>();
     final busy = auth.isBusy || _googleBusy;
 
@@ -85,7 +84,10 @@ class _SignupScreenState extends State<SignupScreen> {
       leading: BackCircle(
         onTap: () => Navigator.of(context).maybePop(),
       ),
-      child: SingleChildScrollView(
+      child: Builder(
+        builder: (context) {
+          final p = context.palette;
+          return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 26, 24, 28),
         child: Form(
           key: _formKey,
@@ -226,6 +228,8 @@ class _SignupScreenState extends State<SignupScreen> {
             ],
           ),
         ),
+          );
+        },
       ),
     );
   }
