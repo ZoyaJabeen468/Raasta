@@ -23,6 +23,23 @@ enum HazardType {
   roadSign,
   wrongWay;
 
+  /// Pothole, crack, or speed bump (M2). One spoken slot with life hazards.
+  bool get isRoadHazard =>
+      this == HazardType.pothole ||
+      this == HazardType.crack ||
+      this == HazardType.speedBump;
+
+  /// Person or animal (M5). One spoken slot with road hazards.
+  bool get isLifeHazard =>
+      this == HazardType.person ||
+      this == HazardType.cow ||
+      this == HazardType.buffalo ||
+      this == HazardType.dog ||
+      this == HazardType.cat ||
+      this == HazardType.horse ||
+      this == HazardType.donkey ||
+      this == HazardType.goat;
+
   String get label {
     switch (this) {
       case HazardType.pothole:
@@ -107,8 +124,8 @@ enum HazardType {
     }
   }
 
-  /// Map YOLO class id (0–10) → hazard. Unknown ids fall back to pothole.
-  static HazardType fromClassId(int id) {
+  /// Map 11-class YOLO id (0–10) → hazard. Unknown ids are dropped.
+  static HazardType? fromClassId(int id) {
     return switch (id) {
       0 => HazardType.pothole,
       1 => HazardType.crack,
@@ -121,7 +138,7 @@ enum HazardType {
       8 => HazardType.horse,
       9 => HazardType.donkey,
       10 => HazardType.goat,
-      _ => HazardType.pothole,
+      _ => null,
     };
   }
 

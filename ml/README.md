@@ -9,9 +9,12 @@ Train **one** YOLOv8 model that detects:
 | 2 | `speed_bump` | M2 |
 | 3 | `person` | M5 |
 | 4 | `cow` | M5 |
-| 5 | `dog` | M5 |
-| 6 | `goat` | M5 |
-| 7 | `horse` | M5 |
+| 5 | `buffalo` | M5 |
+| 6 | `dog` | M5 |
+| 7 | `cat` | M5 |
+| 8 | `horse` | M5 |
+| 9 | `donkey` | M5 |
+| 10 | `goat` | M5 |
 
 ## Important (read this)
 
@@ -20,7 +23,7 @@ Your PC has **no NVIDIA GPU**. Training a real model here would take **days** an
 **Do all training in Google Colab (free T4 GPU)** using the notebook in `colab/`.
 Then copy the exported `.tflite` into `assets/models/` for the Flutter app.
 
-Realistic FYP target: **mAP50 ≈ 0.55–0.75** on a mixed 8-class model.
+Realistic FYP target: **mAP50 ≈ 0.55–0.75** on a mixed 11-class model.
 Papers quoting “96%” are usually single-task / different metrics — don’t chase that number.
 
 ---

@@ -3,6 +3,46 @@ import 'dart:math';
 
 import '../models/hazard_type.dart';
 
+/// Monocular band only. Not survey metres.
+enum HazardRange {
+  near,
+  mid,
+  far;
+
+  String get english {
+    switch (this) {
+      case HazardRange.near:
+        return 'close ahead';
+      case HazardRange.mid:
+        return 'ahead';
+      case HazardRange.far:
+        return 'far ahead';
+    }
+  }
+
+  String get urdu {
+    switch (this) {
+      case HazardRange.near:
+        return 'بالکل قریب آگے';
+      case HazardRange.mid:
+        return 'آگے';
+      case HazardRange.far:
+        return 'دور آگے';
+    }
+  }
+
+  String get shortLabel {
+    switch (this) {
+      case HazardRange.near:
+        return 'near';
+      case HazardRange.mid:
+        return 'mid';
+      case HazardRange.far:
+        return 'far';
+    }
+  }
+}
+
 /// A raw detection emitted by a [HazardDetector] before the drive session
 /// attaches trip context (speed, safety impact) to it.
 class HazardDetection {
@@ -10,6 +50,7 @@ class HazardDetection {
     required this.type,
     required this.confidence,
     this.distanceMeters,
+    this.range,
     this.left,
     this.top,
     this.right,
@@ -19,8 +60,11 @@ class HazardDetection {
   final HazardType type;
   final double confidence;
 
-  /// Rough distance ahead in meters (from box size / position). Null if unknown.
+  /// Unused for live YOLO. Kept so older callers compile.
   final double? distanceMeters;
+
+  /// near / mid / far from box size and position.
+  final HazardRange? range;
 
   /// Normalized box in the detection frame (0–1). Null when unknown (sim).
   final double? left;

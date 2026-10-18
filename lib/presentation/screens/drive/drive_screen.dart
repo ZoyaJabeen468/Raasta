@@ -52,9 +52,10 @@ class _DriveView extends StatefulWidget {
 
 class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
   Timer? _alertTimer;
+  String? _alertTimerFor;
   bool _finishing = false;
   DriveProvider? _drive;
-  static const _alertAutoDismiss = Duration(seconds: 8);
+  static const _alertAutoDismiss = Duration(seconds: 5);
 
   @override
   void initState() {
@@ -104,17 +105,22 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
       return;
     }
 
-    if (drive.activeAlert != null) {
-      final id = drive.activeAlert!.id;
+    final id = drive.activeAlert?.id;
+    if (id == null) {
       _alertTimer?.cancel();
-      _alertTimer = Timer(_alertAutoDismiss, () {
-        if (_drive?.activeAlert?.id == id) {
-          _drive?.dismissActiveAlert();
-        }
-      });
-    } else {
-      _alertTimer?.cancel();
+      _alertTimerFor = null;
+      return;
     }
+    // The provider notifies on every GPS/speed tick; only a new alert
+    // restarts the countdown.
+    if (id == _alertTimerFor) return;
+    _alertTimerFor = id;
+    _alertTimer?.cancel();
+    _alertTimer = Timer(_alertAutoDismiss, () {
+      if (_drive?.activeAlert?.id == id) {
+        _drive?.dismissActiveAlert();
+      }
+    });
   }
 
   Future<void> _finishWithTrip(TripRecord? trip) async {
@@ -233,7 +239,6 @@ class _DriveViewState extends State<_DriveView> with WidgetsBindingObserver {
                         _LiveBadge(
                           paused: drive.isPaused,
                           arming: drive.isArming,
-                          usingGps: drive.usingGps,
                           usingAi: drive.usingRealtimeModel,
                         ),
                       ],
@@ -323,7 +328,7 @@ class _DriveCenterChips extends StatelessWidget {
             ],
             if (kDebugMode &&
                 drive.usingRealtimeModel &&
-                detector.debugPeakScore >= 0.45) ...[
+                detector.debugPeakScore >= 0.15) ...[
               const SizedBox(height: 10),
               _AiDebugChip(
                 label: detector.debugPeakLabel,
@@ -422,13 +427,11 @@ class _LiveBadge extends StatelessWidget {
   const _LiveBadge({
     required this.paused,
     required this.arming,
-    required this.usingGps,
     required this.usingAi,
   });
 
   final bool paused;
   final bool arming;
-  final bool usingGps;
   final bool usingAi;
 
   @override
@@ -446,7 +449,7 @@ class _LiveBadge extends StatelessWidget {
       label = 'AI LIVE';
     } else {
       color = AppColors.alert;
-      label = usingGps ? 'GPS LIVE' : 'DETECTING';
+      label = 'AI OFF';
     }
 
     return Container(

@@ -26,7 +26,7 @@ class ScoreBar extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.shield_rounded, size: 16, color: tint),
+            Icon(Icons.shield_outlined, size: 16, color: tint),
             const SizedBox(width: 8),
             Text(
               'Safety score',

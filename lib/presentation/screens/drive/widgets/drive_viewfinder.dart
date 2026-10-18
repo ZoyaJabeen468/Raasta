@@ -258,9 +258,9 @@ class _HazardBoxesPainter extends CustomPainter {
       bracket(rect.bottomRight, -c, -c);
 
       final pct = (box.confidence * 100).clamp(0, 99).round();
-      final dist = box.distanceMeters;
-      final label = dist != null
-          ? '${box.type.label}  $pct%  ·  ${dist.round()}m'
+      final band = box.range?.shortLabel;
+      final label = band != null
+          ? '${box.type.label}  $pct%  ·  $band'
           : '${box.type.label}  $pct%';
 
       final builder = ui.ParagraphBuilder(
@@ -311,7 +311,7 @@ class _HazardBoxesPainter extends CustomPainter {
           a.right != b.right ||
           a.bottom != b.bottom ||
           a.confidence != b.confidence ||
-          a.distanceMeters != b.distanceMeters) {
+          a.range != b.range) {
         return true;
       }
     }
@@ -369,8 +369,8 @@ class _NoCameraNote extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Detection is simulated here. Run on your phone for the live '
-              'camera feed.',
+              'No camera preview. Hazard AI needs the phone camera; '
+              'nothing is being detected.',
               textAlign: TextAlign.center,
               style: GoogleFonts.dmSans(
                 color: Colors.white60,

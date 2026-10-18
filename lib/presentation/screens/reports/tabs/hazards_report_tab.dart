@@ -24,31 +24,30 @@ class HazardsReportTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!hasTrips) {
       return const ReportEmpty(
-        message: 'Hazard detections from your drives will be broken down here.',
-        showStartDrive: true,
+        title: 'No saved drives',
+        message: 'Save a drive from Home to see hazard totals.',
       );
     }
 
     if (report.isEmpty) {
       return const ReportEmpty(
-        title: 'Clean roads so far',
-        message:
-            'No hazards logged on your trips yet. Keep driving safely — '
-            'this is the best kind of empty report.',
-        icon: Icons.verified_rounded,
+        title: 'No hazards logged',
+        message: 'RAASTA will list detections from saved drives.',
+        icon: Icons.verified_outlined,
         celebrate: true,
       );
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, RaastaNavBar.contentInset),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, RaastaNavBar.contentInset),
       children: [
         const SectionLabel('Detections'),
         _TypeGrid(report: report),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Hazard breakdown'),
         AppCard(
-          padding: const EdgeInsets.fromLTRB(14, 18, 16, 14),
+          radius: 14,
+          padding: const EdgeInsets.fromLTRB(14, 16, 16, 14),
           child: BarChart(
             barWidth: 22,
             data: [
@@ -61,12 +60,13 @@ class HazardsReportTab extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Share of detections'),
         _ShareCard(report: report),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Analysis'),
         AppCard(
+          radius: 14,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Column(
             children: [
@@ -77,19 +77,19 @@ class HazardsReportTab extends StatelessWidget {
                 tint: report.mostCommon?.color,
               ),
               InsightRow(
-                icon: Icons.calendar_month_rounded,
+                icon: Icons.calendar_month_outlined,
                 label: 'Detected this month',
                 value: '${report.thisMonth}',
-                tint: AppColors.sky,
+                tint: AppColors.teal,
               ),
               InsightRow(
-                icon: Icons.functions_rounded,
+                icon: Icons.functions_outlined,
                 label: 'Average per trip',
                 value: report.avgPerTrip.toStringAsFixed(1),
-                tint: AppColors.violet,
+                tint: AppColors.teal,
               ),
               InsightRow(
-                icon: Icons.nightlight_round,
+                icon: Icons.nightlight_outlined,
                 label: 'Riskiest time of day',
                 value: report.worstDayPart?.label ?? '—',
                 tint: AppColors.amber,
@@ -118,10 +118,10 @@ class _TypeGrid extends StatelessWidget {
       children: [
         for (final entry in items)
           SizedBox(
-            width: (MediaQuery.sizeOf(context).width - 32 - 12) / 2,
+            width: (MediaQuery.sizeOf(context).width - 40 - 12) / 2,
             child: AppCard(
-              radius: 18,
-              padding: const EdgeInsets.all(16),
+              radius: 14,
+              padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -174,6 +174,7 @@ class _ShareCard extends StatelessWidget {
     final p = context.palette;
 
     return AppCard(
+      radius: 14,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Column(
         children: [

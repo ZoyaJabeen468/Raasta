@@ -36,7 +36,7 @@ Raasta uses the phone’s rear camera, GPS, and voice alerts to warn drivers abo
 
 | Area | Responsibility |
 |------|----------------|
-| **M2 + M5** | One YOLOv8n model, 8 classes → TFLite → Flutter alerts |
+| **M2 + M5** | One YOLOv8n model, 11 classes → TFLite → Flutter alerts |
 | **M6** | Wrong-way detection (heuristics + delay + alerts) |
 | **M7** | Trip/hazard analytics for all new event types |
 | **Evaluation** | Metrics tables, confusion notes, failure cases for report |
@@ -70,9 +70,12 @@ Raasta uses the phone’s rear camera, GPS, and voice alerts to warn drivers abo
 | 2 | `speed_bump` | M2 |
 | 3 | `person` | M5 |
 | 4 | `cow` | M5 |
-| 5 | `dog` | M5 |
-| 6 | `goat` | M5 |
-| 7 | `horse` | M5 |
+| 5 | `buffalo` | M5 |
+| 6 | `dog` | M5 |
+| 7 | `cat` | M5 |
+| 8 | `horse` | M5 |
+| 9 | `donkey` | M5 |
+| 10 | `goat` | M5 |
 
 ### Events Amna must emit for M7 (Zoya displays)
 
@@ -93,7 +96,7 @@ When these happen, write into the same trip log structure (extend Hive model tog
 
 ### 5.1 M2 + M5 — Train one model
 
-**Goal:** Fine-tune `yolov8n.pt` on 8 classes; ship `assets/models/raasta_m2_m5.tflite`.
+**Goal:** Fine-tune `yolov8n.pt` on 11 classes; ship `assets/models/raasta_m2_m5.tflite`.
 
 **Where:** Google Colab (T4 GPU). Local PC has no NVIDIA GPU — do **not** train locally.
 
@@ -105,7 +108,7 @@ When these happen, write into the same trip log structure (extend Hive model tog
 4. Add Roboflow API key  
 5. Run all → download `.pt` + `.tflite`  
 6. Put TFLite in `assets/models/raasta_m2_m5.tflite`  
-7. Update Flutter interpreter: `numClasses = 8`, map new `HazardType`s, TTS phrases  
+7. Update Flutter interpreter: `numClasses = 11`, map new `HazardType`s, TTS phrases  
 
 **Target:** mAP50 ≈ 0.55–0.75 (realistic). Do not chase 96% paper numbers.
 
@@ -238,7 +241,7 @@ feature/amna-m4-speed-limit
 |------|------|------|--------|
 | **1** | Dataset merge + Colab baseline train | Sign dataset + detector baseline | Repo branches + Issues board |
 | **2** | Improve mAP; export TFLite v1 | Sign TFLite / detector in app stub | — |
-| **3** | Flutter: 8-class + M5 TTS | English OCR + speak | Smoke test on one phone |
+| **3** | Flutter: 11-class + M5 TTS | English OCR + speak | Smoke test on one phone |
 | **4** | Thresholds + night samples | Urdu / bilingual path | — |
 | **5** | Start M6 prototype (delay logic) | M4: live speed limit from signs | — |
 | **6** | M6 alerts + M7 wrong-way log | Harden OCR gating / battery | Joint road test #1 |

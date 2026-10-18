@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -30,6 +31,25 @@ class SignDetection {
   final DateTime at;
 }
 
+/// Letterboxed model input plus the mapping back to the camera frame.
+/// Plain data, so it can be built in a background isolate.
+class SignPreparedFrame {
+  const SignPreparedFrame({
+    required this.flatIn,
+    required this.gain,
+    required this.padX,
+    required this.padY,
+    required this.frameW,
+    required this.frameH,
+  });
+  final Float32List flatIn;
+  final double gain;
+  final double padX;
+  final double padY;
+  final int frameW;
+  final int frameH;
+}
+
 /// Runs the M3 traffic-sign YOLOv8n TFLite model (24 classes, see
 /// [TrafficSign] for the class order).
 ///
@@ -45,12 +65,15 @@ class SignInterpreter {
   static const assetPath = 'assets/models/raasta_signs.tflite';
   static const numClasses = TrafficSign.numClasses;
 
-  static const confThreshold = 0.5;
+  static const confThreshold = 0.62;
   static const iouThreshold = 0.45;
 
   /// Real signs are small in frame; a box this large is almost always a
   /// close-up false positive (dashboard, hand, wall).
-  static const maxBoxAreaFraction = 0.60;
+  static const maxBoxAreaFraction = 0.22;
+  static const minBoxAreaFraction = 0.0006;
+
+  static const _knownClassCounts = {22, 24};
 
   Interpreter? _interpreter;
   bool _ready = false;
@@ -59,12 +82,19 @@ class SignInterpreter {
   List<int> _inShape = const [];
   List<int> _outShape = const [];
 
+  /// Float32 in and out: pass raw bytes. Nested lists allocate per value
+  /// and froze the UI thread for seconds on every sign check.
+  bool _rawFloatIo = false;
+
+  IsolateInterpreter? _runner;
+
   double lastPeakScore = 0;
   String lastPeakLabel = '-';
   String lastDebug = 'not run';
 
   bool get isReady => _ready;
   int get inputSize => _inputSize;
+  bool get isNchw => _nchw;
 
   Future<bool> load() async {
     if (_ready) return true;
@@ -73,13 +103,28 @@ class SignInterpreter {
       final options = InterpreterOptions()..threads = 1;
       _interpreter = await Interpreter.fromAsset(assetPath, options: options);
       _interpreter!.allocateTensors();
-      _inShape = List<int>.from(_interpreter!.getInputTensor(0).shape);
-      _outShape = List<int>.from(_interpreter!.getOutputTensor(0).shape);
+      final inTensor = _interpreter!.getInputTensor(0);
+      final outTensor = _interpreter!.getOutputTensor(0);
+      _inShape = List<int>.from(inTensor.shape);
+      _outShape = List<int>.from(outTensor.shape);
+      _rawFloatIo = inTensor.type == TensorType.float32 &&
+          outTensor.type == TensorType.float32;
       _nchw = _inShape.length == 4 && _inShape[1] == 3;
       if (_nchw) {
         _inputSize = _inShape[2];
       } else if (_inShape.length == 4) {
         _inputSize = _inShape[1];
+      }
+      if (_rawFloatIo) {
+        try {
+          _runner = await IsolateInterpreter.create(
+            address: _interpreter!.address,
+            debugName: 'raasta-signs',
+          );
+        } catch (e) {
+          debugPrint('SignInterpreter background runner unavailable: $e');
+          _runner = null;
+        }
       }
       _ready = true;
       lastDebug =
@@ -95,38 +140,74 @@ class SignInterpreter {
     }
   }
 
+  /// Letterbox and pack [rgb]. Pure function: safe in [Isolate.run].
+  static SignPreparedFrame prepareFrame(img.Image rgb, int size, bool nchw) {
+    final letterboxed = _letterbox(rgb, size);
+    return SignPreparedFrame(
+      flatIn: _packInput(letterboxed.image, size, nchw),
+      gain: letterboxed.gain,
+      padX: letterboxed.padX,
+      padY: letterboxed.padY,
+      frameW: rgb.width,
+      frameH: rgb.height,
+    );
+  }
+
+  /// Runs a frame built by [prepareFrame]. The network runs on a background
+  /// isolate so the camera preview keeps painting.
+  Future<List<SignDetection>> detectPrepared(SignPreparedFrame frame) async {
+    final interpreter = _interpreter;
+    if (interpreter == null || !_ready) return const [];
+    final runner = _runner;
+    if (runner == null || !_rawFloatIo) return _detectPacked(frame);
+
+    try {
+      final outElements = _outShape.fold<int>(1, (a, b) => a * b);
+      final flatIn = frame.flatIn;
+      await runner.run(
+        flatIn.buffer.asUint8List(flatIn.offsetInBytes, flatIn.lengthInBytes),
+        Uint8List(outElements * 4),
+      );
+      if (!_ready) return const [];
+      final view = interpreter.getOutputTensor(0).data;
+      final output =
+          Uint8List.fromList(view).buffer.asFloat32List(0, outElements);
+      return _decode(output, frame);
+    } catch (e, st) {
+      lastDebug = 'detect error: $e';
+      debugPrint('SignInterpreter async detect failed: $e\n$st');
+      return const [];
+    }
+  }
+
   /// Returns NMS-filtered detections at or above [confThreshold].
-  List<SignDetection> detect(img.Image rgb) {
+  List<SignDetection> detect(img.Image rgb) =>
+      _detectPacked(prepareFrame(rgb, _inputSize, _nchw));
+
+  List<SignDetection> _detectPacked(SignPreparedFrame frame) {
     final interpreter = _interpreter;
     if (interpreter == null || !_ready) return const [];
 
     try {
-      final letterboxed = _letterbox(rgb, _inputSize);
-      final flatIn = _packInput(letterboxed.image);
-
-      final inputNested = flatIn.reshape<double>(_inShape);
+      final flatIn = frame.flatIn;
       final outElements = _outShape.fold<int>(1, (a, b) => a * b);
-      final flatOut = List<double>.filled(outElements, 0.0);
-      final outputNested = flatOut.reshape<double>(_outShape);
-
-      interpreter.run(inputNested, outputNested);
-
-      final output = Float32List(outElements);
-      _flattenDoubles(outputNested, output, 0);
-
-      final raw = _parseYoloOutput(
-        output,
-        gain: letterboxed.gain,
-        padX: letterboxed.padX,
-        padY: letterboxed.padY,
-        frameW: rgb.width,
-        frameH: rgb.height,
-      );
-      return _nms(
-        raw,
-        frameW: rgb.width.toDouble(),
-        frameH: rgb.height.toDouble(),
-      );
+      final Float32List output;
+      if (_rawFloatIo) {
+        interpreter.run(
+          flatIn.buffer.asUint8List(flatIn.offsetInBytes, flatIn.lengthInBytes),
+          Uint8List(outElements * 4),
+        );
+        final view = interpreter.getOutputTensor(0).data;
+        output = Uint8List.fromList(view).buffer.asFloat32List(0, outElements);
+      } else {
+        final inputNested = flatIn.reshape<double>(_inShape);
+        final flatOut = List<double>.filled(outElements, 0.0);
+        final outputNested = flatOut.reshape<double>(_outShape);
+        interpreter.run(inputNested, outputNested);
+        output = Float32List(outElements);
+        _flattenDoubles(outputNested, output, 0);
+      }
+      return _decode(output, frame);
     } catch (e, st) {
       lastDebug = 'detect error: $e';
       debugPrint('SignInterpreter detect failed: $e\n$st');
@@ -134,16 +215,35 @@ class SignInterpreter {
     }
   }
 
-  void close() {
-    _interpreter?.close();
-    _interpreter = null;
-    _ready = false;
+  List<SignDetection> _decode(Float32List output, SignPreparedFrame frame) {
+    final raw = _parseYoloOutput(
+      output,
+      gain: frame.gain,
+      padX: frame.padX,
+      padY: frame.padY,
+      frameW: frame.frameW,
+      frameH: frame.frameH,
+    );
+    if (raw.isEmpty) return const [];
+    return _nms(
+      raw,
+      frameW: frame.frameW.toDouble(),
+      frameH: frame.frameH.toDouble(),
+    );
   }
 
-  Float32List _packInput(img.Image image) {
-    final size = _inputSize;
+  void close() {
+    _ready = false;
+    final runner = _runner;
+    _runner = null;
+    if (runner != null) unawaited(runner.close());
+    _interpreter?.close();
+    _interpreter = null;
+  }
+
+  static Float32List _packInput(img.Image image, int size, bool nchw) {
     final floats = Float32List(1 * 3 * size * size);
-    if (_nchw) {
+    if (nchw) {
       var ri = 0;
       var gi = size * size;
       var bi = 2 * size * size;
@@ -184,7 +284,7 @@ class SignInterpreter {
     return index;
   }
 
-  _Letterbox _letterbox(img.Image src, int size) {
+  static _Letterbox _letterbox(img.Image src, int size) {
     final scale = math.min(size / src.width, size / src.height);
     final nw = (src.width * scale).round().clamp(1, size);
     final nh = (src.height * scale).round().clamp(1, size);
@@ -217,22 +317,39 @@ class SignInterpreter {
     required int frameW,
     required int frameH,
   }) {
-    if (_outShape.length < 3) {
+    final dims = _outShape.where((d) => d > 1).toList();
+    if (dims.length < 2) {
       lastDebug = 'bad out shape $_outShape';
-      return const [];
+      return <_Det>[];
     }
 
     // YOLOv8 head: [1, 4 + C, anchors] (default) or [1, anchors, 4 + C].
-    final d1 = _outShape[1];
-    final d2 = _outShape[2];
-    final channelsFirst = d1 == 4 + numClasses;
-    final channels = channelsFirst ? d1 : d2;
-    final anchors = channelsFirst ? d2 : d1;
-
-    if (channels != 4 + numClasses) {
-      lastDebug = 'bad channels=$channels shape=$_outShape';
-      return const [];
+    // Some LiteRT exports squeeze the batch dim to [4 + C, anchors].
+    final d1 = dims[dims.length - 2];
+    final d2 = dims[dims.length - 1];
+    var classCount = 0;
+    var hasObjectness = false;
+    var channelsFirst = false;
+    for (final n in _knownClassCounts) {
+      if (d1 == 4 + n || d1 == 5 + n) {
+        classCount = n;
+        hasObjectness = d1 == 5 + n;
+        channelsFirst = true;
+        break;
+      }
+      if (d2 == 4 + n || d2 == 5 + n) {
+        classCount = n;
+        hasObjectness = d2 == 5 + n;
+        channelsFirst = false;
+        break;
+      }
     }
+    if (classCount < 1) {
+      lastDebug = 'bad channels d1=$d1 d2=$d2 shape=$_outShape';
+      return <_Det>[];
+    }
+    final channels = hasObjectness ? 5 + classCount : 4 + classCount;
+    final anchors = channelsFirst ? d2 : d1;
 
     double at(int c, int a) {
       final index = channelsFirst ? (c * anchors + a) : (a * channels + c);
@@ -247,8 +364,10 @@ class SignInterpreter {
     for (var i = 0; i < anchors; i++) {
       var bestCls = 0;
       var bestScore = -1.0;
-      for (var c = 0; c < numClasses; c++) {
-        final s = at(4 + c, i);
+      final obj = hasObjectness ? _probability(at(4, i)) : 1.0;
+      final scoreOffset = hasObjectness ? 5 : 4;
+      for (var c = 0; c < classCount; c++) {
+        final s = _probability(at(scoreOffset + c, i)) * obj;
         if (s > bestScore) {
           bestScore = s;
           bestCls = c;
@@ -285,11 +404,15 @@ class SignInterpreter {
       if (x2 - x1 < 2 || y2 - y1 < 2) continue;
 
       final boxArea = (x2 - x1) * (y2 - y1);
-      if (frameArea > 0 && boxArea / frameArea > maxBoxAreaFraction) {
+      if (frameArea <= 0) continue;
+      final areaFrac = boxArea / frameArea;
+      if (areaFrac > maxBoxAreaFraction || areaFrac < minBoxAreaFraction) {
         continue;
       }
+      final centerY = ((y1 + y2) / 2) / frameH;
+      if (centerY < 0.04 || centerY > 0.78) continue;
 
-      final sign = TrafficSign.fromClassId(bestCls);
+      final sign = TrafficSign.fromModel(bestCls, classCount);
       if (sign == null) continue;
 
       dets.add(
@@ -305,9 +428,10 @@ class SignInterpreter {
     }
 
     lastPeakScore = peak;
-    lastPeakLabel = TrafficSign.fromClassId(peakCls)?.classLabel ?? '-';
+    lastPeakLabel =
+        TrafficSign.fromModel(peakCls, classCount)?.classLabel ?? '-';
     lastDebug = 'peak=${peak.toStringAsFixed(2)} ($lastPeakLabel) '
-        'raw=${dets.length}';
+        'raw=${dets.length} shape=$_outShape C=$classCount';
     return dets;
   }
 
@@ -316,16 +440,18 @@ class SignInterpreter {
     required double frameW,
     required double frameH,
   }) {
-    dets.sort((a, b) => b.confidence.compareTo(a.confidence));
+    if (dets.isEmpty) return const [];
+    final ranked = List<_Det>.of(dets)
+      ..sort((a, b) => b.confidence.compareTo(a.confidence));
     final kept = <_Det>[];
-    final suppressed = List<bool>.filled(dets.length, false);
-    for (var i = 0; i < dets.length; i++) {
+    final suppressed = List<bool>.filled(ranked.length, false);
+    for (var i = 0; i < ranked.length; i++) {
       if (suppressed[i]) continue;
-      kept.add(dets[i]);
-      for (var j = i + 1; j < dets.length; j++) {
+      kept.add(ranked[i]);
+      for (var j = i + 1; j < ranked.length; j++) {
         if (suppressed[j]) continue;
-        if (dets[i].sign != dets[j].sign) continue;
-        if (_iou(dets[i], dets[j]) > iouThreshold) suppressed[j] = true;
+        if (ranked[i].sign != ranked[j].sign) continue;
+        if (_iou(ranked[i], ranked[j]) > iouThreshold) suppressed[j] = true;
       }
     }
     final now = DateTime.now();
@@ -351,6 +477,14 @@ class SignInterpreter {
     final inter = math.max(0, x2 - x1) * math.max(0, y2 - y1);
     final union = a.area + b.area - inter;
     return union <= 0 ? 0 : inter / union;
+  }
+
+  /// Class scores are probabilities in [0, 1]. Some exports emit logits.
+  double _probability(double raw) {
+    if (raw.isNaN) return 0;
+    if (raw >= 0 && raw <= 1) return raw;
+    final x = raw.clamp(-12.0, 12.0);
+    return 1 / (1 + math.exp(-x));
   }
 }
 

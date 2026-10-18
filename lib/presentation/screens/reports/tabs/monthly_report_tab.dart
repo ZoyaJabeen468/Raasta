@@ -26,31 +26,33 @@ class MonthlyReportTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!hasTrips) {
       return const ReportEmpty(
-        message: 'Drive through the month and trends will show up here.',
-        showStartDrive: true,
+        title: 'No saved drives',
+        message: 'Save a drive from Home to see this month.',
       );
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, RaastaNavBar.contentInset),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, RaastaNavBar.contentInset),
       children: [
         SectionLabel(Format.monthYear(DateTime.now())),
         Row(
           children: [
             Expanded(
               child: StatTile(
-                icon: Icons.route_rounded,
+                icon: Icons.route_outlined,
                 value: '${report.trips}',
                 label: 'Trips',
+                compact: true,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: StatTile(
-                icon: Icons.straighten_rounded,
+                icon: Icons.straighten_outlined,
                 value: Format.distance(report.distanceMeters),
                 label: 'Distance',
                 accent: AppColors.safe,
+                compact: true,
               ),
             ),
           ],
@@ -60,43 +62,47 @@ class MonthlyReportTab extends StatelessWidget {
           children: [
             Expanded(
               child: StatTile(
-                icon: Icons.schedule_rounded,
+                icon: Icons.schedule_outlined,
                 value: Format.duration(report.durationSeconds),
                 label: 'Drive time',
-                accent: AppColors.sky,
+                compact: true,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: StatTile(
-                icon: Icons.warning_amber_rounded,
+                icon: Icons.warning_amber_outlined,
                 value: '${report.hazards}',
-                label: 'Hazards found',
+                label: 'Hazards',
                 accent: AppColors.amber,
+                compact: true,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Versus last month'),
         _ComparisonCard(report: report),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Trip trend'),
         AppCard(
-          padding: const EdgeInsets.fromLTRB(14, 18, 16, 14),
+          radius: 14,
+          padding: const EdgeInsets.fromLTRB(14, 16, 16, 14),
           child: LineChart(
             values: report.tripsPerWeek.map((v) => v.toDouble()).toList(),
             labels: report.weekLabels,
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Safety score'),
         AppCard(
-          padding: const EdgeInsets.symmetric(vertical: 24),
+          radius: 14,
+          padding: const EdgeInsets.symmetric(vertical: 20),
           child: Center(
             child: ScoreRing(
               score: report.safetyScore,
               hasData: report.trips > 0,
+              size: 112,
               caption: 'Monthly average across ${report.trips} '
                   '${report.trips == 1 ? 'trip' : 'trips'}',
             ),
@@ -117,6 +123,7 @@ class _ComparisonCard extends StatelessWidget {
     final p = context.palette;
 
     return AppCard(
+      radius: 14,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Column(
         children: [

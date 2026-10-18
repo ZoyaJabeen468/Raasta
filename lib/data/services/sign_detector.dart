@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -26,7 +27,7 @@ class SignDetector {
   final _controller = StreamController<SignDetection>.broadcast();
 
   static const minInferGap = Duration(milliseconds: 2500);
-  static const requiredStreak = 2;
+  static const requiredStreak = 3;
   static const signCooldown = Duration(seconds: 20);
   static const confThreshold = SignInterpreter.confThreshold;
 
@@ -99,20 +100,24 @@ class SignDetector {
     required bool isFront,
   }) async {
     try {
-      // Let a camera/UI frame paint before heavy work.
-      await Future<void>.delayed(Duration.zero);
       if (!_running) return;
 
-      final rgb = snap.toRgb(
-        maxSide: _model.inputSize,
-        sensorOrientation: sensorOrientation,
-        deviceOrientation: deviceOrientation,
-        isFront: isFront,
-      );
-      if (rgb == null) return;
+      // Pixel work off the UI isolate, or the camera preview freezes.
+      final size = _model.inputSize;
+      final nchw = _model.isNchw;
+      final prepared = await Isolate.run(() {
+        final rgb = snap.toRgb(
+          maxSide: size,
+          sensorOrientation: sensorOrientation,
+          deviceOrientation: deviceOrientation,
+          isFront: isFront,
+        );
+        if (rgb == null) return null;
+        return SignInterpreter.prepareFrame(rgb, size, nchw);
+      });
+      if (prepared == null || !_running) return;
 
-      final hits = _model
-          .detect(rgb)
+      final hits = (await _model.detectPrepared(prepared))
           .where(
             (h) =>
                 h.confidence >= confThreshold &&

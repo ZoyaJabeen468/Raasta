@@ -72,36 +72,42 @@ class EmptyState extends StatelessWidget {
     required this.title,
     required this.message,
     this.action,
+    this.compact = false,
   });
 
   final IconData icon;
   final String title;
   final String message;
   final Widget? action;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
 
     return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      radius: compact ? 14 : 20,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 20 : 24,
+        vertical: compact ? 20 : 28,
+      ),
       child: Column(
         children: [
           Container(
-            width: 62,
-            height: 62,
+            width: compact ? 48 : 62,
+            height: compact ? 48 : 62,
             decoration: BoxDecoration(
               color: p.brandSoft,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(compact ? 14 : 20),
             ),
-            child: Icon(icon, color: p.brand, size: 28),
+            child: Icon(icon, color: p.brand, size: compact ? 22 : 28),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: compact ? 12 : 16),
           Text(
             title,
             textAlign: TextAlign.center,
             style: GoogleFonts.sora(
-              fontSize: 17,
+              fontSize: compact ? 16 : 17,
               fontWeight: FontWeight.w700,
               color: p.textPrimary,
             ),

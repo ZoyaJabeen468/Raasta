@@ -44,4 +44,12 @@ abstract final class AppColors {
     end: Alignment.bottomRight,
     colors: [Color(0xFF0B5E57), Color(0xFF129188), Color(0xFF1AA89E)],
   );
+
+  /// Home welcome card: deep teal left, turquoise right. Quieter than
+  /// [driveGradient] so the card does not dominate the screen.
+  static const LinearGradient homeHeroGradient = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [Color(0xFF0B5E57), Color(0xFF1AA89E)],
+  );
 }

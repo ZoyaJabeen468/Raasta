@@ -43,7 +43,7 @@ enum DriverTier {
       case DriverTier.gold:
         return 'Reach 50 trips with an 85+ score for Platinum';
       case DriverTier.platinum:
-        return 'Top tier — keep that score up';
+        return 'Top tier. Keep that score up';
     }
   }
 }

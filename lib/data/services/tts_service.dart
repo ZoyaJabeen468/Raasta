@@ -3,6 +3,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 import '../models/hazard_type.dart';
 import '../models/language_preference.dart';
+import 'hazard_detector.dart';
 
 class TtsService {
   TtsService() : _tts = FlutterTts();
@@ -12,6 +13,11 @@ class TtsService {
   bool _speaking = false;
   bool _signSpeaking = false;
   DateTime? _lastAnnounceAt;
+  HazardType? _lastHazardType;
+  HazardType? _pendingHazard;
+  LanguagePreference? _pendingLanguage;
+  HazardRange? _pendingRange;
+  int? _pendingEta;
 
   /// Cached result of probing the device for an Urdu-capable locale.
   String? _urduLocale;
@@ -152,52 +158,89 @@ class TtsService {
   Future<void> announceHazard(
     HazardType type,
     LanguagePreference language, {
-    double? distanceMeters,
+    HazardRange? range,
+    int? etaSeconds,
   }) async {
+    if (type == HazardType.crack && _speaking) return;
+    if (_speaking) {
+      final current = _lastHazardType;
+      final otherSlot = current != null &&
+          ((type.isLifeHazard && current.isRoadHazard) ||
+              (type.isRoadHazard && current.isLifeHazard));
+      if (otherSlot && type != HazardType.crack) {
+        _pendingHazard = type;
+        _pendingLanguage = language;
+        _pendingRange = range;
+        _pendingEta = etaSeconds;
+      }
+      return;
+    }
     final now = DateTime.now();
-    if (_speaking) return;
-    if (_lastAnnounceAt != null && now.difference(_lastAnnounceAt!) < _minGap) {
+    final last = _lastHazardType;
+    final sameSlot = last != null &&
+        ((type.isRoadHazard && last.isRoadHazard) ||
+            (type.isLifeHazard && last.isLifeHazard));
+    if (sameSlot &&
+        _lastAnnounceAt != null &&
+        now.difference(_lastAnnounceAt!) < _minGap) {
       return;
     }
     _speaking = true;
     _lastAnnounceAt = now;
-    final meters = _roundDistance(distanceMeters);
+    _lastHazardType = type;
     try {
       await _ensure();
       await _tts.stop();
-      await _announceBoth(type, language, meters);
+      await _announceBoth(type, language, range, etaSeconds);
     } finally {
       _speaking = false;
+      final pending = _pendingHazard;
+      final pendingLang = _pendingLanguage;
+      if (pending != null && pendingLang != null) {
+        _pendingHazard = null;
+        _pendingLanguage = null;
+        final pendingRange = _pendingRange;
+        final pendingEta = _pendingEta;
+        _pendingRange = null;
+        _pendingEta = null;
+        await announceHazard(
+          pending,
+          pendingLang,
+          range: pendingRange,
+          etaSeconds: pendingEta,
+        );
+      }
     }
   }
 
   Future<void> _announceBoth(
     HazardType type,
     LanguagePreference language,
-    int? meters,
+    HazardRange? range,
+    int? etaSeconds,
   ) async {
     if (language == LanguagePreference.english) {
       await _setEnglish();
-      await _speak(_english(type, meters));
+      await _speak(_english(type, range, etaSeconds));
       return;
     }
 
     if (language == LanguagePreference.urdu) {
       if (await _setUrdu()) {
-        await _speak(_urdu(type, meters));
+        await _speak(_urdu(type, range, etaSeconds));
       } else {
         await _setEnglish();
-        await _speak(_english(type, meters));
+        await _speak(_english(type, range, etaSeconds));
       }
       return;
     }
 
     // Bilingual: English first, then Urdu with its own voice.
     await _setEnglish();
-    await _speak(_english(type, meters));
+    await _speak(_english(type, range, etaSeconds));
     if (await _setUrdu()) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
-      await _speak(_urdu(type, meters));
+      await _speak(_urdu(type, range, etaSeconds));
     }
   }
 
@@ -283,36 +326,43 @@ class TtsService {
     }
   }
 
-  int? _roundDistance(double? meters) {
-    if (meters == null || meters <= 0) return null;
-    return ((meters / 10).round() * 10).clamp(10, 150);
+  String _placeEn(HazardRange? range, int? etaSeconds) {
+    final band = range?.english ?? 'ahead';
+    if (etaSeconds == null) return band;
+    return '$band, about $etaSeconds seconds';
   }
 
-  String _english(HazardType type, int? meters) {
-    final dist = meters == null ? 'ahead' : 'ahead $meters meters';
+  String _placeUr(HazardRange? range, int? etaSeconds) {
+    final band = range?.urdu ?? 'آگے';
+    if (etaSeconds == null) return band;
+    return '$band، تقریباً $etaSeconds سیکنڈ';
+  }
+
+  String _english(HazardType type, HazardRange? range, int? etaSeconds) {
+    final dist = _placeEn(range, etaSeconds);
     switch (type) {
-      case HazardType.pothole:
-        return 'Caution. Pothole $dist. Slow down.';
-      case HazardType.speedBump:
-        return 'Caution. Speed bump $dist. Slow down.';
-      case HazardType.crack:
-        return 'Caution. Cracked road $dist. Slow down.';
       case HazardType.person:
-        return 'Caution. Pedestrian $dist. Slow down.';
+        return 'Slow down now. Pedestrian $dist.';
       case HazardType.cow:
-        return 'Caution. Cow on the road $dist. Slow down.';
+        return 'Slow down now. Cow on the road $dist.';
       case HazardType.buffalo:
-        return 'Caution. Buffalo on the road $dist. Slow down.';
+        return 'Slow down now. Buffalo on the road $dist.';
       case HazardType.dog:
-        return 'Caution. Dog on the road $dist.';
+        return 'Slow down now. Dog on the road $dist.';
       case HazardType.cat:
-        return 'Caution. Animal on the road $dist.';
+        return 'Slow down now. Animal on the road $dist.';
       case HazardType.horse:
-        return 'Caution. Horse on the road $dist. Slow down.';
+        return 'Slow down now. Horse on the road $dist.';
       case HazardType.donkey:
-        return 'Caution. Donkey on the road $dist. Slow down.';
+        return 'Slow down now. Donkey on the road $dist.';
       case HazardType.goat:
-        return 'Caution. Goat on the road $dist.';
+        return 'Slow down now. Goat on the road $dist.';
+      case HazardType.speedBump:
+        return 'Slow down. Speed bump $dist.';
+      case HazardType.pothole:
+        return 'Pothole $dist.';
+      case HazardType.crack:
+        return 'Cracked road.';
       case HazardType.roadSign:
         return 'Road sign $dist.';
       case HazardType.wrongWay:
@@ -320,33 +370,33 @@ class TtsService {
     }
   }
 
-  String _urdu(HazardType type, int? meters) {
-    final dist = meters == null ? 'آگے' : '$meters میٹر آگے';
+  String _urdu(HazardType type, HazardRange? range, int? etaSeconds) {
+    final dist = _placeUr(range, etaSeconds);
     switch (type) {
-      case HazardType.pothole:
-        return 'خبردار۔ $dist گڑھا ہے۔ رفتار کم کریں۔';
-      case HazardType.speedBump:
-        return 'خبردار۔ $dist سپیڈ بریکر ہے۔ رفتار کم کریں۔';
-      case HazardType.crack:
-        return 'خبردار۔ $dist ٹوٹی سڑک ہے۔';
       case HazardType.person:
-        return 'خبردار۔ $dist شخص ہے۔ احتیاط کریں۔';
+        return 'ابھی رفتار کم کریں۔ $dist شخص ہے۔';
       case HazardType.cow:
-        return 'خبردار۔ $dist گائے ہے۔ رفتار کم کریں۔';
+        return 'ابھی رفتار کم کریں۔ $dist گائے ہے۔';
       case HazardType.buffalo:
-        return 'خبردار۔ $dist بھینس ہے۔ رفتار کم کریں۔';
+        return 'ابھی رفتار کم کریں۔ $dist بھینس ہے۔';
       case HazardType.dog:
-        return 'خبردار۔ $dist کتا ہے۔ احتیاط کریں۔';
+        return 'ابھی رفتار کم کریں۔ $dist کتا ہے۔';
       case HazardType.cat:
-        return 'خبردار۔ $dist جانور ہے۔ احتیاط کریں۔';
+        return 'ابھی رفتار کم کریں۔ $dist جانور ہے۔';
       case HazardType.horse:
-        return 'خبردار۔ $dist گھوڑا ہے۔ رفتار کم کریں۔';
+        return 'ابھی رفتار کم کریں۔ $dist گھوڑا ہے۔';
       case HazardType.donkey:
-        return 'خبردار۔ $dist گدھا ہے۔ رفتار کم کریں۔';
+        return 'ابھی رفتار کم کریں۔ $dist گدھا ہے۔';
       case HazardType.goat:
-        return 'خبردار۔ $dist بکری ہے۔ احتیاط کریں۔';
+        return 'ابھی رفتار کم کریں۔ $dist بکری ہے۔';
+      case HazardType.speedBump:
+        return 'رفتار کم کریں۔ $dist سپیڈ بریکر ہے۔';
+      case HazardType.pothole:
+        return '$dist گڑھا ہے۔';
+      case HazardType.crack:
+        return 'ٹوٹی سڑک ہے۔';
       case HazardType.roadSign:
-        return 'خبردار۔ $dist سڑک کا نشان ہے۔';
+        return '$dist سڑک کا نشان ہے۔';
       case HazardType.wrongWay:
         return 'خبردار۔ آپ غلط سمت میں جا رہے ہیں۔ محفوظ طریقے سے مڑیں۔';
     }

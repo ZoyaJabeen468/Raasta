@@ -9,7 +9,6 @@ import '../../../core/config/firebase_bootstrap.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_palette.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../data/models/achievement.dart';
 import '../../../data/models/driver_details.dart';
 import '../../../data/models/driver_tier.dart';
@@ -18,14 +17,16 @@ import '../../providers/auth_provider.dart';
 import '../../providers/driver_profile_provider.dart';
 import '../../providers/trips_provider.dart';
 import '../../widgets/app_card.dart';
+import '../../widgets/greeting_header.dart';
 import '../../widgets/raasta_nav_bar.dart';
 
-/// Profile tab — identity, driver details, achievements and quick actions.
+/// Profile tab: identity, driver details, achievements and account actions.
 class ProfileTab extends StatelessWidget {
   const ProfileTab({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final auth = context.watch<AuthProvider>();
     final details = context.watch<DriverProfileProvider>().details;
     final stats = context.watch<TripsProvider>().stats;
@@ -37,66 +38,130 @@ class ProfileTab extends StatelessWidget {
 
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, RaastaNavBar.contentInset),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, RaastaNavBar.contentInset),
         children: [
-          _ProfileHero(
+          const PillAppBar(),
+          const SizedBox(height: 12),
+          Text(
+            'Profile',
+            style: GoogleFonts.sora(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: p.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _IdentityCard(
             name: name,
             email: user?.email ?? '',
-            memberSince: user?.createdAt,
             photoPath: details.photoPath,
-            stats: stats,
           ),
-          const SizedBox(height: 22),
-          const SectionHeading('Driver info'),
-          _DriverInfoCard(details: details),
-          const SizedBox(height: 22),
-          const SectionHeading('Achievements'),
-          _AchievementStrip(achievements: Achievement.evaluate(stats)),
-          const SizedBox(height: 22),
-          const SectionLabel('Account'),
-          _ActionTile(
-            icon: Icons.person_outline_rounded,
-            title: 'Edit profile',
-            subtitle: 'Name, photo, vehicle details',
-            onTap: () => Navigator.of(context).pushNamed(AppRoutes.editProfile),
+          const SizedBox(height: 16),
+          Text(
+            'Driver info',
+            style: GoogleFonts.sora(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: p.textPrimary,
+            ),
           ),
-          const SizedBox(height: 10),
-          _ActionTile(
-            icon: Icons.settings_outlined,
-            title: 'Settings',
-            subtitle: 'Theme, voice, permissions, account',
-            onTap: () => Navigator.of(context).pushNamed(AppRoutes.settings),
+          const SizedBox(height: 8),
+          _DriverInfoCard(details: details, stats: stats),
+          const SizedBox(height: 16),
+          Text(
+            'Achievements',
+            style: GoogleFonts.sora(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: p.textPrimary,
+            ),
           ),
-          const SizedBox(height: 22),
-          const SectionLabel('More'),
-          _ActionTile(
-            icon: Icons.info_outline_rounded,
-            title: 'About RAASTA',
-            subtitle: 'What the app does and how',
-            onTap: () => Navigator.of(context).pushNamed(AppRoutes.about),
+          const SizedBox(height: 8),
+          _AchievementList(achievements: Achievement.evaluate(stats)),
+          const SizedBox(height: 16),
+          Text(
+            'Account',
+            style: GoogleFonts.sora(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: p.textPrimary,
+            ),
           ),
-          const SizedBox(height: 10),
-          _ActionTile(
-            icon: Icons.help_outline_rounded,
-            title: 'Help & support',
-            subtitle: 'FAQs and how RAASTA works',
-            onTap: () => Navigator.of(context).pushNamed(AppRoutes.faq),
+          const SizedBox(height: 8),
+          _ActionGroup(
+            items: [
+              _ActionItem(
+                icon: Icons.person_outline_rounded,
+                title: 'Edit profile',
+                subtitle: 'Name, photo, and vehicle details',
+                onTap: () =>
+                    Navigator.of(context).pushNamed(AppRoutes.editProfile),
+              ),
+              _ActionItem(
+                icon: Icons.settings_outlined,
+                title: 'Settings',
+                subtitle: 'Theme, voice, permissions, account',
+                onTap: () =>
+                    Navigator.of(context).pushNamed(AppRoutes.settings),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          _ActionTile(
-            icon: Icons.privacy_tip_outlined,
-            title: 'Privacy policy',
-            subtitle: 'How your data is handled',
-            onTap: () => Navigator.of(context).pushNamed(AppRoutes.privacy),
+          const SizedBox(height: 16),
+          Text(
+            'Legal and help',
+            style: GoogleFonts.sora(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: p.textPrimary,
+            ),
           ),
-          const SizedBox(height: 22),
-          OutlinedButton.icon(
-            onPressed: () => _confirmSignOut(context),
-            icon: const Icon(Icons.logout_rounded, size: 18),
-            label: const Text('Log out'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.alert,
-              side: BorderSide(color: AppColors.alert.withValues(alpha: 0.45)),
+          const SizedBox(height: 8),
+          _ActionGroup(
+            items: [
+              _ActionItem(
+                icon: Icons.info_outline_rounded,
+                title: 'About RAASTA',
+                subtitle: 'What the app does and how',
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.about),
+              ),
+              _ActionItem(
+                icon: Icons.help_outline_rounded,
+                title: 'Help and support',
+                subtitle: 'FAQs and how RAASTA works',
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.faq),
+              ),
+              _ActionItem(
+                icon: Icons.privacy_tip_outlined,
+                title: 'Privacy policy',
+                subtitle: 'How your data is handled',
+                onTap: () =>
+                    Navigator.of(context).pushNamed(AppRoutes.privacy),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: () => _confirmSignOut(context),
+              icon: const Icon(Icons.logout_rounded, size: 18),
+              label: Text(
+                'Log out',
+                style: GoogleFonts.dmSans(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.alert,
+                side: BorderSide(
+                  color: AppColors.alert.withValues(alpha: 0.45),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
             ),
           ),
         ],
@@ -134,269 +199,86 @@ class ProfileTab extends StatelessWidget {
   }
 }
 
-/// Gradient identity card: brand line, tier badge, avatar and a stats strip.
-class _ProfileHero extends StatelessWidget {
-  const _ProfileHero({
+/// White identity card. Standing and totals live elsewhere.
+class _IdentityCard extends StatelessWidget {
+  const _IdentityCard({
     required this.name,
     required this.email,
-    required this.memberSince,
     required this.photoPath,
-    required this.stats,
   });
 
   final String name;
   final String email;
-  final DateTime? memberSince;
   final String photoPath;
-  final TripStats stats;
 
   @override
   Widget build(BuildContext context) {
-    final tier = DriverTier.of(stats);
+    final p = context.palette;
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0C7A73), Color(0xFF16A79C)],
-        ),
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.teal.withValues(alpha: 0.32),
-            blurRadius: 26,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Column(
+    return AppCard(
+      radius: 14,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Text(
-                'RAASTA',
-                style: GoogleFonts.sora(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.6,
-                  color: AppColors.white.withValues(alpha: 0.85),
-                ),
-              ),
-              const Spacer(),
-              Tooltip(
-                message: tier.nextGoal(stats),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(tier.icon, size: 14, color: AppColors.white),
-                      const SizedBox(width: 5),
-                      Text(
-                        tier.label,
-                        style: GoogleFonts.dmSans(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+          GestureDetector(
+            onTap: () =>
+                Navigator.of(context).pushNamed(AppRoutes.editProfile),
+            child: ProfileAvatar(name: name, photoPath: photoPath, size: 56),
           ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              GestureDetector(
-                onTap: () =>
-                    Navigator.of(context).pushNamed(AppRoutes.editProfile),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    ProfileAvatar(name: name, photoPath: photoPath, size: 66),
-                    Positioned(
-                      right: -2,
-                      bottom: -2,
-                      child: Container(
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          color: AppColors.white,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.photo_camera_rounded,
-                          size: 13,
-                          color: AppColors.tealDeep,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.sora(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.white,
-                      ),
-                    ),
-                    if (email.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        email,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.dmSans(
-                          fontSize: 13,
-                          color: AppColors.white.withValues(alpha: 0.82),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(
-                          FirebaseBootstrap.ready
-                              ? Icons.cloud_done_rounded
-                              : Icons.phone_android_rounded,
-                          size: 13,
-                          color: AppColors.white.withValues(alpha: 0.8),
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          FirebaseBootstrap.ready
-                              ? 'Cloud-synced'
-                              : 'On this device',
-                          style: GoogleFonts.dmSans(
-                            fontSize: 11.5,
-                            color: AppColors.white.withValues(alpha: 0.8),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              tier.nextGoal(stats),
-              style: GoogleFonts.dmSans(
-                fontSize: 12.5,
-                height: 1.35,
-                color: AppColors.white.withValues(alpha: 0.88),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            decoration: BoxDecoration(
-              color: AppColors.white.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Row(
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _HeroStat(
-                  value: '${stats.totalTrips}',
-                  label: stats.totalTrips == 1 ? 'Trip' : 'Trips',
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.sora(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: p.textPrimary,
+                  ),
                 ),
-                const _HeroDivider(),
-                _HeroStat(
-                  value: Format.distance(stats.totalDistanceMeters),
-                  label: 'Distance',
-                ),
-                const _HeroDivider(),
-                _HeroStat(
-                  value: stats.isEmpty ? '—' : '${stats.safetyScore}',
-                  label: 'Score',
-                ),
-                const _HeroDivider(),
-                _HeroStat(
-                  value: memberSince == null
-                      ? '—'
-                      : '${memberSince!.year}',
-                  label: 'Since',
+                if (email.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 12.5,
+                      color: p.textSecondary,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(
+                      FirebaseBootstrap.ready
+                          ? Icons.cloud_done_outlined
+                          : Icons.phone_android_outlined,
+                      size: 14,
+                      color: p.brand,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      FirebaseBootstrap.ready
+                          ? 'Cloud-synced'
+                          : 'On this device',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 12,
+                        color: p.textSecondary,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _HeroStat extends StatelessWidget {
-  const _HeroStat({required this.value, required this.label});
-
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.sora(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.white,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.dmSans(
-              fontSize: 11,
-              color: AppColors.white.withValues(alpha: 0.8),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeroDivider extends StatelessWidget {
-  const _HeroDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 30,
-      color: AppColors.white.withValues(alpha: 0.22),
     );
   }
 }
@@ -464,52 +346,23 @@ class ProfileAvatar extends StatelessWidget {
 }
 
 class _DriverInfoCard extends StatelessWidget {
-  const _DriverInfoCard({required this.details});
+  const _DriverInfoCard({required this.details, required this.stats});
 
   final DriverDetails details;
+  final TripStats stats;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-
-    if (details.isEmpty) {
-      return AppCard(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        onTap: () => Navigator.of(context).pushNamed(AppRoutes.editProfile),
-        child: Column(
-          children: [
-            Icon(Icons.badge_outlined, size: 28, color: p.textSecondary),
-            const SizedBox(height: 12),
-            Text(
-              'No driver info yet',
-              style: GoogleFonts.sora(
-                fontSize: 15.5,
-                fontWeight: FontWeight.w700,
-                color: p.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              'Add your age, experience and vehicle so alerts can be tuned '
-              'to how you drive.',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.dmSans(
-                fontSize: 13,
-                color: p.textSecondary,
-                height: 1.45,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    final tier = DriverTier.of(stats);
 
     final rows = <(IconData, String, String)>[
+      (Icons.workspace_premium_outlined, 'Standing', tier.label),
       if (details.age != null)
         (Icons.cake_outlined, 'Age', '${details.age} years'),
       if (details.experience != null)
         (
-          Icons.timeline_rounded,
+          Icons.timeline_outlined,
           'Experience',
           details.experience!.label,
         ),
@@ -522,37 +375,30 @@ class _DriverInfoCard extends StatelessWidget {
     ];
 
     return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      radius: 14,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      onTap: details.isEmpty
+          ? () => Navigator.of(context).pushNamed(AppRoutes.editProfile)
+          : null,
       child: Column(
         children: [
           for (var i = 0; i < rows.length; i++) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Row(
-                children: [
-                  Icon(rows[i].$1, size: 18, color: p.brand),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      rows[i].$2,
-                      style: GoogleFonts.dmSans(
-                        fontSize: 13.5,
-                        color: p.textSecondary,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    rows[i].$3,
-                    style: GoogleFonts.dmSans(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: p.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
+            _InfoRow(
+              icon: rows[i].$1,
+              label: rows[i].$2,
+              value: rows[i].$3,
             ),
-            if (i != rows.length - 1) Divider(color: p.border, height: 1),
+            if (i != rows.length - 1)
+              Divider(color: p.border.withValues(alpha: 0.9), height: 1),
+          ],
+          if (details.isEmpty) ...[
+            Divider(color: p.border.withValues(alpha: 0.9), height: 1),
+            _InfoRow(
+              icon: Icons.badge_outlined,
+              label: 'Details',
+              value: 'Add age, experience, and vehicle',
+              muted: true,
+            ),
           ],
         ],
       ),
@@ -560,84 +406,48 @@ class _DriverInfoCard extends StatelessWidget {
   }
 }
 
-class _AchievementStrip extends StatelessWidget {
-  const _AchievementStrip({required this.achievements});
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.muted = false,
+  });
 
-  final List<Achievement> achievements;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-
-    return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              for (final item in achievements)
-                Expanded(child: _Badge(achievement: item)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '${achievements.where((a) => a.unlocked).length} of '
-            '${achievements.length} unlocked',
-            style: GoogleFonts.dmSans(fontSize: 12.5, color: p.textSecondary),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({required this.achievement});
-
-  final Achievement achievement;
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool muted;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final unlocked = achievement.unlocked;
-    final tint = unlocked ? AppColors.amber : p.textSecondary;
 
-    return Tooltip(
-      message: achievement.requirement,
-      child: Column(
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      child: Row(
         children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: 46,
-                height: 46,
-                child: CircularProgressIndicator(
-                  value: unlocked ? 1 : achievement.progress,
-                  strokeWidth: 3,
-                  backgroundColor: p.surfaceAlt,
-                  valueColor: AlwaysStoppedAnimation(
-                    unlocked ? AppColors.amber : p.brand.withValues(alpha: 0.6),
-                  ),
-                ),
-              ),
-              Icon(
-                achievement.icon,
-                size: 20,
-                color: unlocked ? tint : p.textSecondary.withValues(alpha: 0.6),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
+          Icon(icon, size: 18, color: p.brand),
+          const SizedBox(width: 12),
           Text(
-            achievement.label,
-            textAlign: TextAlign.center,
-            maxLines: 2,
+            label,
             style: GoogleFonts.dmSans(
-              fontSize: 11,
-              fontWeight: unlocked ? FontWeight.w700 : FontWeight.w500,
-              color: unlocked ? p.textPrimary : p.textSecondary,
-              height: 1.25,
+              fontSize: 13.5,
+              color: p.textSecondary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.dmSans(
+                fontSize: 13.5,
+                fontWeight: muted ? FontWeight.w500 : FontWeight.w700,
+                color: muted ? p.textSecondary : p.textPrimary,
+              ),
             ),
           ),
         ],
@@ -646,8 +456,92 @@ class _Badge extends StatelessWidget {
   }
 }
 
-class _ActionTile extends StatelessWidget {
-  const _ActionTile({
+class _AchievementList extends StatelessWidget {
+  const _AchievementList({required this.achievements});
+
+  final List<Achievement> achievements;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final unlocked = achievements.where((a) => a.unlocked).length;
+
+    return AppCard(
+      radius: 14,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Column(
+        children: [
+          for (var i = 0; i < achievements.length; i++) ...[
+            _AchievementRow(achievement: achievements[i]),
+            if (i != achievements.length - 1)
+              Divider(color: p.border.withValues(alpha: 0.9), height: 1),
+          ],
+          Divider(color: p.border.withValues(alpha: 0.9), height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '$unlocked of ${achievements.length} unlocked',
+                style: GoogleFonts.dmSans(
+                  fontSize: 12.5,
+                  color: p.textSecondary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AchievementRow extends StatelessWidget {
+  const _AchievementRow({required this.achievement});
+
+  final Achievement achievement;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final unlocked = achievement.unlocked;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      child: Row(
+        children: [
+          Icon(
+            achievement.icon,
+            size: 18,
+            color: unlocked ? p.brand : p.textSecondary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              achievement.label,
+              style: GoogleFonts.dmSans(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: p.textPrimary,
+              ),
+            ),
+          ),
+          Text(
+            unlocked ? 'Unlocked' : 'In progress',
+            style: GoogleFonts.dmSans(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: unlocked ? AppColors.safe : p.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionItem {
+  const _ActionItem({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -658,52 +552,84 @@ class _ActionTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+}
+
+class _ActionGroup extends StatelessWidget {
+  const _ActionGroup({required this.items});
+
+  final List<_ActionItem> items;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
 
     return AppCard(
-      radius: 16,
-      padding: const EdgeInsets.all(14),
-      onTap: onTap,
-      child: Row(
+      radius: 14,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Column(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: p.brandSoft,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, size: 19, color: p.brand),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.dmSans(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w700,
-                    color: p.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: GoogleFonts.dmSans(
-                    fontSize: 12.5,
-                    color: p.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right_rounded, color: p.textSecondary, size: 20),
+          for (var i = 0; i < items.length; i++) ...[
+            _ActionRow(item: items[i]),
+            if (i != items.length - 1)
+              Divider(color: p.border.withValues(alpha: 0.9), height: 1),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({required this.item});
+
+  final _ActionItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+
+    return InkWell(
+      onTap: item.onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: p.brandSoft,
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(item.icon, size: 18, color: p.brand),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: p.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    item.subtitle,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 12.5,
+                      color: p.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: p.textSecondary, size: 20),
+          ],
+        ),
       ),
     );
   }

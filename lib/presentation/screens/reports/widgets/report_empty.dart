@@ -1,27 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_palette.dart';
-import '../../../widgets/brand_buttons.dart';
 
 /// Shared empty / celebration state for report tabs.
 class ReportEmpty extends StatelessWidget {
   const ReportEmpty({
     super.key,
     required this.message,
-    this.title = 'Nothing to report yet',
-    this.icon = Icons.query_stats_rounded,
+    this.title = 'No saved drives',
+    this.icon = Icons.query_stats_outlined,
     this.celebrate = false,
-    this.showStartDrive = false,
   });
 
   final String message;
   final String title;
   final IconData icon;
   final bool celebrate;
-  final bool showStartDrive;
 
   @override
   Widget build(BuildContext context) {
@@ -38,20 +34,20 @@ class ReportEmpty extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 80,
-              height: 80,
+              width: 72,
+              height: 72,
               decoration: BoxDecoration(
                 color: soft,
-                borderRadius: BorderRadius.circular(26),
+                borderRadius: BorderRadius.circular(20),
               ),
-              child: Icon(icon, size: 34, color: accent),
+              child: Icon(icon, size: 30, color: accent),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             Text(
               title,
               textAlign: TextAlign.center,
               style: GoogleFonts.sora(
-                fontSize: 18,
+                fontSize: 17,
                 fontWeight: FontWeight.w700,
                 color: p.textPrimary,
               ),
@@ -61,24 +57,11 @@ class ReportEmpty extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: GoogleFonts.dmSans(
-                fontSize: 14,
+                fontSize: 13.5,
                 color: p.textSecondary,
                 height: 1.45,
               ),
             ),
-            if (showStartDrive) ...[
-              const SizedBox(height: 22),
-              SizedBox(
-                width: 220,
-                child: GradientButton(
-                  label: 'Start a drive',
-                  height: 48,
-                  icon: Icons.navigation_rounded,
-                  onPressed: () =>
-                      Navigator.of(context).pushNamed(AppRoutes.drive),
-                ),
-              ),
-            ],
           ],
         ),
       ),

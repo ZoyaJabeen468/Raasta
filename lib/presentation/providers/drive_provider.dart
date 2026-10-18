@@ -249,6 +249,7 @@ class DriveProvider extends ChangeNotifier {
       // Simulation: start rolling so Chrome / denied-GPS demos still work.
       _speedKph = 18 + _random.nextDouble() * 12;
     }
+    _syncDetectorSpeed();
 
     // Opening Drive is the start. Don't wait for a second tap or for
     // speed to climb past the old arming threshold.
@@ -387,8 +388,12 @@ class DriveProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (alert.priority > _activeAlert!.priority) {
-      _alertQueue.add(_activeAlert!);
+    final current = _activeAlert!;
+    if (alert.priority > current.priority) {
+      _alertQueue.add(current);
+      _activeAlert = alert;
+    } else if (alert.priority == current.priority) {
+      // Same kind of hazard: the newer one is the one on the road now.
       _activeAlert = alert;
     } else {
       _alertQueue.add(alert);
@@ -418,10 +423,16 @@ class DriveProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _syncDetectorSpeed() {
+    final d = _detector;
+    if (d is CameraYoloHazardDetector) d.speedKph = _speedKph;
+  }
+
   void _resetState() {
     _elapsedSeconds = 0;
     _distanceMeters = 0;
     _speedKph = 0;
+    _syncDetectorSpeed();
     _maxSpeedKph = 0;
     _overspeedCount = 0;
     _wasOverspeed = false;
@@ -451,6 +462,7 @@ class DriveProvider extends ChangeNotifier {
     if (_status == DriveStatus.paused) return;
 
     _speedKph = sample.speedKph.clamp(0, 200);
+    _syncDetectorSpeed();
     if (_speedKph > _maxSpeedKph) _maxSpeedKph = _speedKph;
     _lastHeadingDegrees = sample.headingDegrees;
     _lastHeadingAccurate = WrongWayService.isHeadingUsable(
@@ -482,6 +494,7 @@ class DriveProvider extends ChangeNotifier {
       // overspeed banners do not fire while you point the camera at a screen.
       final drift = (_random.nextDouble() - 0.5) * 4;
       _speedKph = (_speedKph + drift).clamp(28, 48);
+      _syncDetectorSpeed();
       if (_speedKph > _maxSpeedKph) _maxSpeedKph = _speedKph;
     }
 
@@ -605,6 +618,8 @@ class DriveProvider extends ChangeNotifier {
         _status == DriveStatus.paused) {
       return;
     }
+    // Never count or speak unless the live TFLite model is running.
+    if (!usingRealtimeModel) return;
 
     // First detection while waiting for motion → start the trip (good for demos).
     if (_status == DriveStatus.arming) {
@@ -614,12 +629,14 @@ class DriveProvider extends ChangeNotifier {
       _updateWakelock();
     }
 
+    final eta = _etaSeconds(detection.range);
     final event = HazardEvent(
       type: detection.type,
       at: DateTime.now(),
       confidence: detection.confidence,
       speedKph: _speedKph,
-      distanceMeters: detection.distanceMeters,
+      range: detection.range,
+      etaSeconds: eta,
     );
     _events.add(event);
     _counts[detection.type] = (_counts[detection.type] ?? 0) + 1;
@@ -637,10 +654,23 @@ class DriveProvider extends ChangeNotifier {
         _tts.announceHazard(
           detection.type,
           _language,
-          distanceMeters: detection.distanceMeters,
+          range: detection.range,
+          etaSeconds: eta,
         ),
       );
     }
+  }
+
+  /// Band plus GPS speed, not a measured range. Null when nearly stopped.
+  int? _etaSeconds(HazardRange? range) {
+    if (range == null || _speedKph < 5) return null;
+    final assumeM = switch (range) {
+      HazardRange.near => 10.0,
+      HazardRange.mid => 25.0,
+      HazardRange.far => 45.0,
+    };
+    final sec = assumeM / (_speedKph / 3.6);
+    return sec.round().clamp(2, 15);
   }
 
   void _onSign(SignDetection sign) {

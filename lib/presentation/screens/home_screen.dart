@@ -62,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
         bottomNavigationBar: RaastaNavBar(
           index: _index,
           onChanged: (i) => setState(() => _index = i),
-          centerIcon: Icons.navigation_rounded,
+          centerIcon: Icons.play_arrow_rounded,
           centerTooltip: 'Start drive',
           onCenterTap: _startDrive,
           items: const [

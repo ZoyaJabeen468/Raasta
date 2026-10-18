@@ -27,7 +27,7 @@ class StatTile extends StatelessWidget {
     final tint = accent ?? p.brand;
 
     return AppCard(
-      radius: compact ? 16 : 18,
+      radius: compact ? 14 : 18,
       padding: EdgeInsets.all(compact ? 12 : 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

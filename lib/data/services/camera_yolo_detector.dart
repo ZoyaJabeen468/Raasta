@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -18,6 +19,8 @@ typedef CameraFrameTap = void Function(
 
 class CameraYoloHazardDetector extends ChangeNotifier
     implements HazardDetector {
+  /// [fallback] is kept for callers/tests. Live Drive never starts it:
+  /// a missing TFLite model means no hazard events, not simulated ones.
   CameraYoloHazardDetector({HazardDetector? fallback})
     : _fallback = fallback ?? SimulatedHazardDetector();
 
@@ -32,25 +35,49 @@ class CameraYoloHazardDetector extends ChangeNotifier
   bool _busy = false;
   DateTime? _lastInferAt;
   DateTime? _lastDebugLog;
-  DateTime? _lastAnyAlertAt;
+  DateTime? _lastFrameDoneAt;
+  double _frameMs = 0;
+  DateTime? _lastRoadSlotAt;
+  DateTime? _lastLifeSlotAt;
   final Map<String, DateTime> _lastAlertAt = {};
-  final Map<String, int> _streak = {};
+  final List<_HazardTrack> _tracks = [];
+  final List<_AlertMemory> _memory = [];
+  int _nextTrackId = 1;
 
-  static const _minInferGap = Duration(milliseconds: 350);
+  /// Live GPS / sim speed. Below [_stoppedKph] we keep silence longer.
+  double speedKph = 0;
+
+  /// Inference already serializes on [_busy]. Keep a tiny gap so we do not
+  /// queue work while the previous isolate handoff is still finishing.
+  static const _minInferGap = Duration(milliseconds: 80);
 
   static const _classCooldown = Duration(seconds: 6);
-  static const _globalAlertGap = Duration(seconds: 4);
+  static const _slotCooldown = Duration(seconds: 4);
 
-  static const _requiredStreak = 3;
-  static const _animalStreak = 3;
-  static const _personStreak = 2;
+  static const _requiredStreak = 1;
+  static const _animalStreak = 2;
+  static const _personStreak = 1;
 
-  static const _boxHold = Duration(milliseconds: 1600);
+  static const _minBoxHoldMs = 1600;
+  static const _maxBoxHoldMs = 4000;
+
+  /// Outlasts one inference gap, so a slow phone does not blink boxes off
+  /// between frames.
+  Duration get _boxHold {
+    final ms = (_frameMs * 1.3).round().clamp(_minBoxHoldMs, _maxBoxHoldMs);
+    return Duration(milliseconds: ms);
+  }
   static const _boxSmooth = 0.42;
-  static const _maxOverlayBoxes = 2;
+  static const _matchIou = 0.12;
+  static const _matchCenter = 0.16;
+  static const _maxMissed = 4;
+  static const _maxMissedAnnounced = 20;
+  static const _maxTracks = 8;
+  static const _maxOverlayBoxes = 3;
+  static const _stoppedKph = 4.0;
+  static const _memoryHoldMoving = Duration(seconds: 12);
+  static const _memoryHoldStopped = Duration(seconds: 90);
 
-  List<HazardDetection> _liveBoxes = const [];
-  DateTime? _boxesSeenAt;
   Timer? _boxHoldTimer;
 
   /// Shares every streamed frame without opening the camera twice.
@@ -62,16 +89,21 @@ class CameraYoloHazardDetector extends ChangeNotifier
   String debugInfo = 'not run';
 
   List<HazardDetection> get liveBoxes {
-    if (_liveBoxes.isEmpty || _boxesSeenAt == null) return const [];
-    if (DateTime.now().difference(_boxesSeenAt!) > _boxHold) {
-      return const [];
-    }
-    return _liveBoxes;
+    final now = DateTime.now();
+    final held = [
+      for (final t in _tracks)
+        if (now.difference(t.lastSeen) <= _boxHold) t.toDetection(),
+    ];
+    if (held.isEmpty) return const [];
+    held.sort((a, b) {
+      final c = _alertPriority(b).compareTo(_alertPriority(a));
+      return c != 0 ? c : b.confidence.compareTo(a.confidence);
+    });
+    return held.take(_maxOverlayBoxes).toList();
   }
 
   @override
-  Stream<HazardDetection> get detections =>
-      _usingModel ? _controller.stream : _fallback.detections;
+  Stream<HazardDetection> get detections => _controller.stream;
 
   Future<void> attachCamera(CameraController? camera) async {
     _camera = camera;
@@ -90,8 +122,10 @@ class CameraYoloHazardDetector extends ChangeNotifier
     _usingModel = loaded;
 
     if (!_usingModel) {
-      debugPrint('CameraYolo: model unavailable, using simulated detector');
-      await _fallback.start();
+      debugPrint(
+        'CameraYolo: model unavailable, hazard AI off, no simulated hazards',
+      );
+      notifyListeners();
       return;
     }
 
@@ -159,76 +193,47 @@ class CameraYoloHazardDetector extends ChangeNotifier
 
       debugPeakScore = postResult.peakScore;
       debugPeakLabel = postResult.peakLabel;
-      debugInfo = _worker.debug;
       final hits = postResult.hits;
 
       final now = DateTime.now();
+      final prev = _lastFrameDoneAt;
+      _lastFrameDoneAt = now;
+      if (prev != null) {
+        final ms = now.difference(prev).inMilliseconds.clamp(1, 10000);
+        _frameMs = _frameMs == 0 ? ms.toDouble() : _frameMs * 0.7 + ms * 0.3;
+      }
+      final fps = _frameMs == 0 ? 0 : 1000 / _frameMs;
+      debugInfo = 'top box: ${postResult.peakFate} · '
+          'kept ${hits.length} · ${fps.toStringAsFixed(1)} fps';
+
       if (_lastDebugLog == null ||
           now.difference(_lastDebugLog!) > const Duration(seconds: 3)) {
         _lastDebugLog = now;
         debugPrint(
           'YOLO peak=${debugPeakScore.toStringAsFixed(3)} '
-          '($debugPeakLabel) hits=${hits.length} $debugInfo',
+          '($debugPeakLabel) $debugInfo ${_worker.debug}',
         );
       }
 
-      final drawable = _pickOverlayBoxes(
-        hits.where(
-          (h) =>
-              h.hasBox &&
-              h.confidence >= YoloM2Interpreter.thresholdFor(h.type),
-        ),
-      );
-      if (drawable.isNotEmpty) {
-        _liveBoxes = _smoothBoxes(drawable);
-        _boxesSeenAt = now;
-        _boxHoldTimer?.cancel();
-        _boxHoldTimer = Timer(_boxHold + const Duration(milliseconds: 50), () {
-          if (!_controller.isClosed) notifyListeners();
-        });
-        notifyListeners();
-      }
-
-      if (hits.isEmpty) {
-        _streak.clear();
-        return;
-      }
-
-      hits.sort((a, b) {
-        final ap = _alertPriority(a);
-        final bp = _alertPriority(b);
-        if (ap != bp) return bp.compareTo(ap);
-        return b.confidence.compareTo(a.confidence);
+      final gated = [
+        for (final h in hits)
+          if (h.hasBox &&
+              h.confidence >=
+                  YoloM2Interpreter.thresholdFor(
+                    h.type,
+                    areaFrac: (h.right! - h.left!) * (h.bottom! - h.top!),
+                  ))
+            h,
+      ];
+      _updateTracks(gated, now);
+      _refreshMemory(gated, now);
+      notifyListeners();
+      _boxHoldTimer?.cancel();
+      _boxHoldTimer = Timer(_boxHold + const Duration(milliseconds: 50), () {
+        _pruneTracks(DateTime.now());
+        if (!_controller.isClosed) notifyListeners();
       });
-      final best = hits.first;
-      if (best.confidence < YoloM2Interpreter.thresholdFor(best.type)) {
-        _streak.clear();
-        return;
-      }
-
-      final key = best.type.name;
-      _streak[key] = (_streak[key] ?? 0) + 1;
-      for (final k in _streak.keys.where((k) => k != key).toList()) {
-        _streak.remove(k);
-      }
-      final need = YoloM2Interpreter.isAnimal(best.type)
-          ? _animalStreak
-          : (best.type == HazardType.person ? _personStreak : _requiredStreak);
-      if ((_streak[key] ?? 0) < need) return;
-
-      final lastClass = _lastAlertAt[key];
-      if (lastClass != null && now.difference(lastClass) < _classCooldown) {
-        return;
-      }
-      if (_lastAnyAlertAt != null &&
-          now.difference(_lastAnyAlertAt!) < _globalAlertGap) {
-        return;
-      }
-
-      _lastAlertAt[key] = now;
-      _lastAnyAlertAt = now;
-      _streak[key] = 0;
-      if (!_controller.isClosed) _controller.add(best);
+      _maybeAnnounce(now);
     } catch (e, st) {
       debugPrint('YOLO frame error: $e\n$st');
     } finally {
@@ -239,22 +244,22 @@ class CameraYoloHazardDetector extends ChangeNotifier
   @override
   Future<void> pauseCapture() async {
     _capturePaused = true;
+    _boxHoldTimer?.cancel();
+    _tracks.clear();
+    _memory.clear();
     try {
       if (_camera?.value.isStreamingImages == true) {
         await _camera!.stopImageStream();
       }
     } catch (_) {}
-    await _fallback.stop();
+    notifyListeners();
   }
 
   @override
   Future<void> resumeCapture() async {
     if (!_running) return;
     _capturePaused = false;
-    if (!_usingModel) {
-      await _fallback.start();
-      return;
-    }
+    if (!_usingModel) return;
     await _startStream();
   }
 
@@ -263,14 +268,13 @@ class CameraYoloHazardDetector extends ChangeNotifier
     _running = false;
     _capturePaused = false;
     _boxHoldTimer?.cancel();
-    _liveBoxes = const [];
-    _boxesSeenAt = null;
+    _tracks.clear();
+    _memory.clear();
     try {
       if (_camera?.value.isStreamingImages == true) {
         await _camera!.stopImageStream();
       }
     } catch (_) {}
-    await _fallback.stop();
     notifyListeners();
   }
 
@@ -284,61 +288,175 @@ class CameraYoloHazardDetector extends ChangeNotifier
     super.dispose();
   }
 
-  List<HazardDetection> _pickOverlayBoxes(Iterable<HazardDetection> candidates) {
-    final list = candidates.toList();
-    if (list.isEmpty) return const [];
-    list.sort((a, b) {
-      final ap = _alertPriority(a);
-      final bp = _alertPriority(b);
-      if (ap != bp) return bp.compareTo(ap);
-      final ad = a.distanceMeters ?? 999;
-      final bd = b.distanceMeters ?? 999;
-      if (ad != bd) return ad.compareTo(bd);
-      return b.confidence.compareTo(a.confidence);
-    });
-    return list.take(_maxOverlayBoxes).toList();
-  }
+  void _updateTracks(List<HazardDetection> hits, DateTime now) {
+    hits.sort((a, b) => b.confidence.compareTo(a.confidence));
+    final used = <int>{};
 
-  List<HazardDetection> _smoothBoxes(List<HazardDetection> next) {
-    if (_liveBoxes.isEmpty) return next;
-    final out = <HazardDetection>[];
-    final usedPrev = <int>{};
-    for (final n in next) {
+    for (final h in hits) {
       var bestIdx = -1;
-      var bestIou = 0.0;
-      for (var i = 0; i < _liveBoxes.length; i++) {
-        if (usedPrev.contains(i)) continue;
-        final p = _liveBoxes[i];
-        if (p.type != n.type || !p.hasBox || !n.hasBox) continue;
-        final iou = _normIou(p, n);
-        if (iou > bestIou) {
-          bestIou = iou;
+      var bestScore = 0.0;
+      for (var i = 0; i < _tracks.length; i++) {
+        if (used.contains(i)) continue;
+        final t = _tracks[i];
+        if (!_sameTrackFamily(t.type, h.type)) continue;
+        final iou = _normIou(t.toDetection(), h);
+        final dist = _centerDist(t.toDetection(), h);
+        final matched = iou >= _matchIou || dist <= _matchCenter;
+        if (!matched) continue;
+        final score = iou >= _matchIou ? 1 + iou : 1 - dist;
+        if (score > bestScore) {
+          bestScore = score;
           bestIdx = i;
         }
       }
-      if (bestIdx >= 0 && bestIou >= 0.12) {
-        usedPrev.add(bestIdx);
-        final p = _liveBoxes[bestIdx];
-        const a = _boxSmooth;
-        out.add(
-          HazardDetection(
-            type: n.type,
-            confidence: n.confidence,
-            distanceMeters: n.distanceMeters,
-            left: _lerp(p.left!, n.left!, a),
-            top: _lerp(p.top!, n.top!, a),
-            right: _lerp(p.right!, n.right!, a),
-            bottom: _lerp(p.bottom!, n.bottom!, a),
+      if (bestIdx >= 0) {
+        used.add(bestIdx);
+        _tracks[bestIdx].observe(h, now);
+        if (_bestMemory(h) != null) _tracks[bestIdx].announced = true;
+      } else if (_tracks.length < _maxTracks) {
+        used.add(_tracks.length);
+        _tracks.add(
+          _HazardTrack(
+            id: _nextTrackId++,
+            type: h.type,
+            hit: h,
+            at: now,
+            announced: _bestMemory(h) != null,
           ),
         );
-      } else {
-        out.add(n);
       }
     }
-    return out;
+
+    for (var i = 0; i < _tracks.length; i++) {
+      if (!used.contains(i)) _tracks[i].missed += 1;
+    }
+    _pruneTracks(now);
   }
 
-  static double _lerp(double a, double b, double t) => a + (b - a) * t;
+  void _pruneTracks(DateTime now) {
+    _tracks.removeWhere((t) {
+      if (t.announced) {
+        return t.missed > _maxMissedAnnounced ||
+            now.difference(t.lastSeen) > _memoryHold;
+      }
+      return t.missed > _maxMissed || now.difference(t.lastSeen) > _boxHold;
+    });
+  }
+
+  Duration get _memoryHold =>
+      speedKph < _stoppedKph ? _memoryHoldStopped : _memoryHoldMoving;
+
+  void _refreshMemory(List<HazardDetection> hits, DateTime now) {
+    _memory.removeWhere((m) => now.difference(m.lastSeen) > _memoryHold);
+    final claimed = <int>{};
+    for (final h in hits) {
+      var bestIdx = -1;
+      var bestD = _matchCenter;
+      for (var i = 0; i < _memory.length; i++) {
+        if (claimed.contains(i)) continue;
+        final m = _memory[i];
+        if (!_sameTrackFamily(m.type, h.type)) continue;
+        final d = m.distanceTo(h);
+        if (d < bestD) {
+          bestD = d;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx < 0) continue;
+      claimed.add(bestIdx);
+      _memory[bestIdx].remember(h, now);
+    }
+  }
+
+  _AlertMemory? _bestMemory(HazardDetection h) {
+    _AlertMemory? best;
+    var bestD = _matchCenter;
+    for (final m in _memory) {
+      if (!_sameTrackFamily(m.type, h.type)) continue;
+      final d = m.distanceTo(h);
+      if (d < bestD) {
+        bestD = d;
+        best = m;
+      }
+    }
+    return best;
+  }
+
+  void _maybeAnnounce(DateTime now) {
+    _HazardTrack? road;
+    _HazardTrack? life;
+    var roadScore = -1.0e9;
+    var lifeScore = -1.0e9;
+    for (final t in _tracks) {
+      if (t.announced || _bestMemory(t.toDetection()) != null) continue;
+      if (!_readyToAnnounce(t)) continue;
+      final lastClass = _lastAlertAt[t.type.name];
+      if (lastClass != null && now.difference(lastClass) < _classCooldown) {
+        continue;
+      }
+      final score = _alertPriority(t.toDetection());
+      if (t.type.isRoadHazard && score > roadScore) {
+        roadScore = score;
+        road = t;
+      } else if (t.type.isLifeHazard && score > lifeScore) {
+        lifeScore = score;
+        life = t;
+      }
+    }
+
+    if (life != null &&
+        _lastLifeSlotAt != null &&
+        now.difference(_lastLifeSlotAt!) < _slotCooldown) {
+      life = null;
+    }
+    if (road != null &&
+        _lastRoadSlotAt != null &&
+        now.difference(_lastRoadSlotAt!) < _slotCooldown) {
+      road = null;
+    }
+
+    // Life first so the person/animal card and voice lead.
+    _emitTrack(life, now);
+    _emitTrack(road, now);
+  }
+
+  void _emitTrack(_HazardTrack? track, DateTime now) {
+    if (track == null || _controller.isClosed) return;
+    track.announced = true;
+    _lastAlertAt[track.type.name] = now;
+    if (track.type.isRoadHazard) _lastRoadSlotAt = now;
+    if (track.type.isLifeHazard) _lastLifeSlotAt = now;
+    final det = track.toDetection();
+    final existing = _bestMemory(det);
+    if (existing != null) {
+      existing.remember(det, now);
+    } else {
+      _memory.add(_AlertMemory.fromDetection(det, now));
+    }
+    _controller.add(det);
+    debugPrint(
+      'YOLO alert ${track.type.name} conf='
+      '${track.confidence.toStringAsFixed(2)} hits=${track.hits}',
+    );
+  }
+
+  static bool _readyToAnnounce(_HazardTrack t) {
+    if (t.hits >= _confirmNeed(t.type)) return true;
+    // One strong frame is enough when the overlay already locked on.
+    if (t.hits >= 1 && t.confidence >= 0.48) return true;
+    return false;
+  }
+
+  static int _confirmNeed(HazardType type) {
+    if (YoloM2Interpreter.isAnimal(type)) return _animalStreak;
+    if (type == HazardType.person) return _personStreak;
+    return _requiredStreak;
+  }
+
+  static bool _sameTrackFamily(HazardType a, HazardType b) {
+    if (a == b) return true;
+    return YoloM2Interpreter.isAnimal(a) && YoloM2Interpreter.isAnimal(b);
+  }
 
   static double _normIou(HazardDetection a, HazardDetection b) {
     final x1 = a.left! > b.left! ? a.left! : b.left!;
@@ -352,6 +470,109 @@ class CameraYoloHazardDetector extends ChangeNotifier
     final areaB = (b.right! - b.left!) * (b.bottom! - b.top!);
     final union = areaA + areaB - inter;
     return union <= 0 ? 0 : inter / union;
+  }
+
+  static double _centerDist(HazardDetection a, HazardDetection b) {
+    final dx = ((a.left! + a.right!) / 2) - ((b.left! + b.right!) / 2);
+    final dy = ((a.top! + a.bottom!) / 2) - ((b.top! + b.bottom!) / 2);
+    return math.sqrt(dx * dx + dy * dy);
+  }
+}
+
+class _AlertMemory {
+  _AlertMemory({
+    required this.type,
+    required this.cx,
+    required this.cy,
+    required this.lastSeen,
+  });
+
+  factory _AlertMemory.fromDetection(HazardDetection hit, DateTime at) {
+    return _AlertMemory(
+      type: hit.type,
+      cx: (hit.left! + hit.right!) / 2,
+      cy: (hit.top! + hit.bottom!) / 2,
+      lastSeen: at,
+    );
+  }
+
+  HazardType type;
+  double cx;
+  double cy;
+  DateTime lastSeen;
+
+  double distanceTo(HazardDetection hit) {
+    final hx = (hit.left! + hit.right!) / 2;
+    final hy = (hit.top! + hit.bottom!) / 2;
+    final dx = cx - hx;
+    final dy = cy - hy;
+    return math.sqrt(dx * dx + dy * dy);
+  }
+
+  void remember(HazardDetection hit, DateTime at) {
+    type = hit.type;
+    cx = (hit.left! + hit.right!) / 2;
+    cy = (hit.top! + hit.bottom!) / 2;
+    lastSeen = at;
+  }
+}
+
+class _HazardTrack {
+  _HazardTrack({
+    required this.id,
+    required this.type,
+    required HazardDetection hit,
+    required DateTime at,
+    this.announced = false,
+  }) : left = hit.left!,
+       top = hit.top!,
+       right = hit.right!,
+       bottom = hit.bottom!,
+       confidence = hit.confidence,
+       distanceMeters = hit.distanceMeters,
+       range = hit.range,
+       lastSeen = at;
+
+  final int id;
+  HazardType type;
+  double left;
+  double top;
+  double right;
+  double bottom;
+  double confidence;
+  double? distanceMeters;
+  HazardRange? range;
+  int hits = 1;
+  int missed = 0;
+  DateTime lastSeen;
+  bool announced = false;
+
+  HazardDetection toDetection() {
+    return HazardDetection(
+      type: type,
+      confidence: confidence,
+      distanceMeters: distanceMeters,
+      range: range,
+      left: left,
+      top: top,
+      right: right,
+      bottom: bottom,
+    );
+  }
+
+  void observe(HazardDetection hit, DateTime at) {
+    const a = CameraYoloHazardDetector._boxSmooth;
+    left = left + (hit.left! - left) * a;
+    top = top + (hit.top! - top) * a;
+    right = right + (hit.right! - right) * a;
+    bottom = bottom + (hit.bottom! - bottom) * a;
+    type = hit.type;
+    confidence = hit.confidence;
+    distanceMeters = hit.distanceMeters;
+    range = hit.range;
+    hits += 1;
+    missed = 0;
+    lastSeen = at;
   }
 }
 

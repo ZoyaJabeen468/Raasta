@@ -20,13 +20,14 @@ enum SignAction {
 enum TrafficSign {
   mph20(
     classLabel: '20_mph',
-    action: SignAction.speak,
+    // UK 20 mph is class 0. Empty scenes and Pakistani 60 km/h discs
+    // both collapse here, so we never speak it or change the HUD.
+    action: SignAction.ignore,
     title: 'Speed limit 20',
     english: 'Speed limit 20 ahead',
     urdu: 'آگے رفتار کی حد بیس ہے۔',
     icon: Icons.speed_rounded,
     color: AppColors.amber,
-    speedLimit: 20,
   ),
   giveWay(
     classLabel: 'Give_way_warn',
@@ -253,15 +254,45 @@ enum TrafficSign {
   final IconData icon;
   final Color color;
 
-  /// Number printed on a speed-limit sign (unit as trained: `20_mph`).
-  /// Null for non-speed signs. Reserved for Module 4.
+  /// km/h printed on a speed-limit class. Null until a km/h class exists.
   final int? speedLimit;
 
   static const numClasses = 24;
 
-  /// Model class id (0–23) → sign, or null when out of range.
+  /// 24-class id (0–23) → sign.
   static TrafficSign? fromClassId(int id) {
     if (id < 0 || id >= values.length) return null;
     return values[id];
+  }
+
+  /// Maps a class id using the exported head width (22-class v2 or 24-class).
+  static TrafficSign? fromModel(int id, int classCount) {
+    if (classCount == 24) return fromClassId(id);
+    if (classCount != 22) return null;
+    return switch (id) {
+      0 => mph20,
+      1 => busStop,
+      2 => doNotEnter,
+      3 => doNotStop,
+      4 => noLeftTurn,
+      5 => noRightTurn,
+      6 => noUTurn,
+      7 => enterLeftLane,
+      8 => greenLight,
+      9 => leftRightLane,
+      10 => noParking,
+      11 => parking,
+      12 => pedCrossing,
+      13 => zebraCrossing,
+      14 => railwayCrossing,
+      15 => redLight,
+      16 => stop,
+      17 => tJunctionLeft,
+      18 => trafficLight,
+      19 => uTurn,
+      20 => warning,
+      21 => yellowLight,
+      _ => null,
+    };
   }
 }

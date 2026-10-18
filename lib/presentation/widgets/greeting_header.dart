@@ -19,7 +19,7 @@ class PillAppBar extends StatelessWidget {
     final p = context.palette;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       decoration: BoxDecoration(
         color: p.surface,
         borderRadius: BorderRadius.circular(99),
@@ -34,7 +34,7 @@ class PillAppBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const RaastaLogo(size: 34),
+          const RaastaLogo(size: 32),
           const SizedBox(width: 8),
           RaastaWordmark(fontSize: 14, color: p.brand),
           const Spacer(),
@@ -111,9 +111,9 @@ class _PillIconButton extends StatelessWidget {
               onTap: action.onTap,
               customBorder: const CircleBorder(),
               child: SizedBox(
-                width: 40,
-                height: 40,
-                child: Icon(action.icon, size: 20, color: p.textPrimary),
+                width: 36,
+                height: 36,
+                child: Icon(action.icon, size: 18, color: p.textPrimary),
               ),
             ),
           ),

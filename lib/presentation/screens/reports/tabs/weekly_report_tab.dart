@@ -28,31 +28,33 @@ class WeeklyReportTab extends StatelessWidget {
 
     if (!hasTrips) {
       return const ReportEmpty(
-        message: 'Finish a drive and your weekly report will build itself.',
-        showStartDrive: true,
+        title: 'No saved drives',
+        message: 'Save a drive from Home to see this week.',
       );
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, RaastaNavBar.contentInset),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, RaastaNavBar.contentInset),
       children: [
         const SectionLabel('This week'),
         Row(
           children: [
             Expanded(
               child: StatTile(
-                icon: Icons.route_rounded,
+                icon: Icons.route_outlined,
                 value: '${report.trips}',
                 label: 'Trips',
+                compact: true,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: StatTile(
-                icon: Icons.straighten_rounded,
+                icon: Icons.straighten_outlined,
                 value: Format.distance(report.distanceMeters),
                 label: 'Distance',
                 accent: AppColors.safe,
+                compact: true,
               ),
             ),
           ],
@@ -62,27 +64,29 @@ class WeeklyReportTab extends StatelessWidget {
           children: [
             Expanded(
               child: StatTile(
-                icon: Icons.schedule_rounded,
+                icon: Icons.schedule_outlined,
                 value: Format.duration(report.durationSeconds),
                 label: 'Drive time',
-                accent: AppColors.sky,
+                compact: true,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: StatTile(
-                icon: Icons.warning_amber_rounded,
+                icon: Icons.warning_amber_outlined,
                 value: '${report.hazards}',
-                label: 'Hazards found',
+                label: 'Hazards',
                 accent: AppColors.amber,
+                compact: true,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Trips by day'),
         AppCard(
-          padding: const EdgeInsets.fromLTRB(14, 18, 16, 14),
+          radius: 14,
+          padding: const EdgeInsets.fromLTRB(14, 16, 16, 14),
           child: BarChart(
             highlightLast: true,
             data: [
@@ -94,10 +98,11 @@ class WeeklyReportTab extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Hazards by day'),
         AppCard(
-          padding: const EdgeInsets.fromLTRB(14, 18, 16, 14),
+          radius: 14,
+          padding: const EdgeInsets.fromLTRB(14, 16, 16, 14),
           child: BarChart(
             color: AppColors.amber,
             data: [
@@ -109,14 +114,16 @@ class WeeklyReportTab extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Safety score'),
         AppCard(
-          padding: const EdgeInsets.symmetric(vertical: 24),
+          radius: 14,
+          padding: const EdgeInsets.symmetric(vertical: 20),
           child: Center(
             child: ScoreRing(
               score: report.safetyScore,
               hasData: report.trips > 0,
+              size: 112,
               caption: report.trips > 0
                   ? 'Averaged across ${report.trips} '
                         '${report.trips == 1 ? 'trip' : 'trips'} this week'
@@ -124,34 +131,29 @@ class WeeklyReportTab extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel("This week's insights"),
         AppCard(
+          radius: 14,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Column(
             children: [
               InsightRow(
-                icon: Icons.speed_rounded,
+                icon: Icons.speed_outlined,
                 label: 'Average speed',
                 value: '${report.avgSpeedKph.round()} km/h',
               ),
               InsightRow(
-                icon: Icons.straighten_rounded,
-                label: 'Distance covered',
-                value: Format.distance(report.distanceMeters),
-                tint: AppColors.safe,
-              ),
-              InsightRow(
-                icon: Icons.wb_twilight_rounded,
+                icon: Icons.wb_twilight_outlined,
                 label: 'Safest time to drive',
                 value: report.safestPart?.label ?? '—',
-                tint: AppColors.sky,
+                tint: AppColors.teal,
               ),
               InsightRow(
-                icon: Icons.calendar_today_rounded,
+                icon: Icons.calendar_today_outlined,
                 label: 'Most active day',
                 value: report.mostActiveDay ?? '—',
-                tint: AppColors.violet,
+                tint: AppColors.teal,
               ),
               _TrendRow(delta: report.tripDelta, palette: p),
             ],

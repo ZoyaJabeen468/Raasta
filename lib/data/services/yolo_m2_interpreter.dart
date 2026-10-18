@@ -56,17 +56,28 @@ class YoloPostProcessResult {
     required this.hits,
     required this.peakScore,
     required this.peakLabel,
+    this.peakFate = '-',
   });
   final List<HazardDetection> hits;
   final double peakScore;
   final String peakLabel;
+
+  /// What happened to the top-scoring box: `kept`, or the filter that
+  /// dropped it. Debug overlay only.
+  final String peakFate;
 }
 
 class _RawParseResult {
-  const _RawParseResult(this.dets, this.peakScore, this.peakLabel);
+  const _RawParseResult(
+    this.dets,
+    this.peakScore,
+    this.peakLabel, [
+    this.peakFate = '-',
+  ]);
   final List<_Det> dets;
   final double peakScore;
   final String peakLabel;
+  final String peakFate;
 }
 
 class YoloM2Interpreter {
@@ -75,16 +86,17 @@ class YoloM2Interpreter {
   static const assetPath = 'assets/models/raasta_m2_m5.tflite';
   static const numClasses = 11;
 
-  static const confThreshold = 0.50;
-  static const speedBumpThreshold = 0.55;
-  static const personThreshold = 0.50;
-  static const animalThreshold = 0.72;
+  static const confThreshold = 0.42;
+  static const speedBumpThreshold = 0.50;
+  static const personThreshold = 0.40;
+  static const animalThreshold = 0.58;
   static const iouThreshold = 0.45;
 
   /// Full frame. Cropping the top used to shift boxes off the real object.
   static const lowerRoiFraction = 1.0;
-  static const maxBoxAreaFraction = 0.55;
-  static const minBoxAreaFraction = 0.004;
+  /// Crowd / large puddle boxes used to die at 0.28.
+  static const maxBoxAreaFraction = 0.42;
+  static const minBoxAreaFraction = 0.00055;
 
   static bool isAnimal(HazardType type) {
     return type == HazardType.cow ||
@@ -96,11 +108,19 @@ class YoloM2Interpreter {
         type == HazardType.goat;
   }
 
-  static double thresholdFor(HazardType type) {
-    if (type == HazardType.speedBump) return speedBumpThreshold;
-    if (isAnimal(type)) return animalThreshold;
-    if (type == HazardType.person) return personThreshold;
-    return confThreshold; 
+  static double thresholdFor(HazardType type, {double? areaFrac}) {
+    var t = confThreshold;
+    if (type == HazardType.speedBump) t = speedBumpThreshold;
+    if (isAnimal(type)) t = animalThreshold;
+    if (type == HazardType.person) t = personThreshold;
+    // Small distant boxes are weaker; do not relax animals (false positives).
+    if (areaFrac != null &&
+        areaFrac < 0.01 &&
+        !isAnimal(type) &&
+        (type.isRoadHazard || type == HazardType.person)) {
+      t = math.max(0.36, t - 0.08);
+    }
+    return t;
   }
 
   Interpreter? _interpreter;
@@ -109,6 +129,10 @@ class YoloM2Interpreter {
   int _inputSize = 640;
   List<int> _inShape = const [];
   List<int> _outShape = const [];
+
+  /// Float32 in and out: hand TFLite the raw bytes. Nested lists cost one
+  /// small allocation per value (1.2M per frame), which ran at ~0.1 fps.
+  bool _rawFloatIo = false;
 
   double lastPeakScore = 0;
   String lastPeakLabel = '-';
@@ -124,20 +148,52 @@ class YoloM2Interpreter {
   InterpreterOptions _options() {
     // Keep creation on the platform thread. A delegate created here and then
     // invoked from another isolate can abort the process on some phones.
-    return InterpreterOptions()..threads = 2;
+    return InterpreterOptions()..threads = 4;
   }
 
   void _captureShapes() {
     final interpreter = _interpreter;
     if (interpreter == null) return;
-    _inShape = List<int>.from(interpreter.getInputTensor(0).shape);
-    _outShape = List<int>.from(interpreter.getOutputTensor(0).shape);
+    final inTensor = interpreter.getInputTensor(0);
+    final outTensor = interpreter.getOutputTensor(0);
+    _inShape = List<int>.from(inTensor.shape);
+    _outShape = List<int>.from(outTensor.shape);
+    _rawFloatIo = inTensor.type == TensorType.float32 &&
+        outTensor.type == TensorType.float32;
     _nchw = _inShape.length == 4 && _inShape[1] == 3;
     if (_nchw) {
       _inputSize = _inShape[2];
     } else if (_inShape.length == 4) {
       _inputSize = _inShape[1];
     }
+  }
+
+  void _logLoaded() {
+    final classCount = classCountFromOutShape(_outShape);
+    final layout = _nchw ? 'NCHW' : 'NHWC';
+    lastDebug =
+        'loaded in=$_inShape out=$_outShape size=$_inputSize $layout '
+        'C=${classCount ?? "?"} (expected $numClasses)';
+    debugPrint('YoloM2 $lastDebug');
+    if (classCount != null && classCount != numClasses && classCount != 8) {
+      debugPrint(
+        'YoloM2 warning: unexpected class count $classCount '
+        '(want $numClasses or legacy 8). Unknown ids will not map to pothole.',
+      );
+    }
+  }
+
+  /// YOLO head width minus 4 box channels. 11 = current export, 8 = legacy.
+  static int? classCountFromOutShape(List<int> outShape) {
+    if (outShape.length < 3) return null;
+    final d1 = outShape[1];
+    final d2 = outShape[2];
+    const currentChannels = 4 + numClasses;
+    const legacyChannels = 12;
+    final channelsFirst = d1 == currentChannels || d1 == legacyChannels;
+    final channelsLast = d2 == currentChannels || d2 == legacyChannels;
+    if (!channelsFirst && !channelsLast) return null;
+    return (channelsFirst ? d1 : d2) - 4;
   }
 
   Future<bool> load() async {
@@ -157,10 +213,7 @@ class YoloM2Interpreter {
         _isolateRunner = null;
       }
       _ready = true;
-      lastDebug =
-          'loaded in=$_inShape out=$_outShape size=$_inputSize '
-          '${_nchw ? "NCHW" : "NHWC"}';
-      debugPrint('YoloM2 $lastDebug');
+      _logLoaded();
       return true;
     } catch (e, st) {
       lastDebug = 'load failed: $e';
@@ -179,10 +232,7 @@ class YoloM2Interpreter {
       _interpreter!.allocateTensors();
       _captureShapes();
       _ready = true;
-      lastDebug =
-          'loaded in=$_inShape out=$_outShape size=$_inputSize '
-          '${_nchw ? "NCHW" : "NHWC"}';
-      debugPrint('YoloM2 $lastDebug');
+      _logLoaded();
       return true;
     } catch (e, st) {
       lastDebug = 'load failed: $e';
@@ -224,8 +274,17 @@ class YoloM2Interpreter {
   }
 
   ({Object input, Object output}) _prepareRun(Float32List flatIn) {
-    final inputNested = flatIn.reshape<double>(_inShape);
     final outElements = _outShape.fold<int>(1, (a, b) => a * b);
+    if (_rawFloatIo) {
+      return (
+        input: flatIn.buffer.asUint8List(
+          flatIn.offsetInBytes,
+          flatIn.lengthInBytes,
+        ),
+        output: Uint8List(outElements * 4),
+      );
+    }
+    final inputNested = flatIn.reshape<double>(_inShape);
     final flatOut = List<double>.filled(outElements, 0.0);
     final outputNested = flatOut.reshape<double>(_outShape);
     return (input: inputNested, output: outputNested);
@@ -233,8 +292,14 @@ class YoloM2Interpreter {
 
   Float32List _finishRun(Object outputNested) {
     final outElements = _outShape.fold<int>(1, (a, b) => a * b);
-    final output = Float32List(outElements);
-    _flattenDoubles(outputNested, output, 0);
+    final Float32List output;
+    if (_rawFloatIo) {
+      final view = _interpreter!.getOutputTensor(0).data;
+      output = Uint8List.fromList(view).buffer.asFloat32List(0, outElements);
+    } else {
+      output = Float32List(outElements);
+      _flattenDoubles(outputNested, output, 0);
+    }
     var absSum = 0.0;
     for (final v in output) {
       absSum += v.abs();
@@ -291,6 +356,7 @@ class YoloM2Interpreter {
       hits: hits,
       peakScore: raw.peakScore,
       peakLabel: raw.peakLabel,
+      peakFate: raw.peakFate,
     );
   }
 
@@ -411,6 +477,7 @@ class YoloM2Interpreter {
 
     var peak = 0.0;
     var peakCls = -1;
+    var peakFate = '-';
     final dets = <_Det>[];
 
     for (var i = 0; i < anchors; i++) {
@@ -423,11 +490,13 @@ class YoloM2Interpreter {
           bestCls = c;
         }
       }
-      if (bestScore > peak) {
+      final isPeak = bestScore > peak;
+      if (isPeak) {
         peak = bestScore;
         peakCls = bestCls;
+        peakFate = 'low';
       }
-      if (bestScore < confThreshold) continue;
+      if (bestScore < 0.34) continue;
 
       var cx = at(0, i);
       var cy = at(1, i);
@@ -452,29 +521,39 @@ class YoloM2Interpreter {
       x2 = x2.clamp(0.0, frameW - 1.0);
       y1 = y1.clamp(0.0, frameH - 1.0);
       y2 = y2.clamp(0.0, frameH - 1.0);
-      if (x2 - x1 < 2 || y2 - y1 < 2) continue;
-
-      final type = _typeForClass(bestCls, classCount);
-      if (type == null) continue;
-      if (bestScore < thresholdFor(type)) continue;
-
-      final boxArea = (x2 - x1) * (y2 - y1);
-      final frameArea = frameW * frameH;
-      if (frameArea <= 0) continue;
-      final areaFrac = boxArea / frameArea;
-      if (areaFrac > maxBoxAreaFraction || areaFrac < minBoxAreaFraction) {
+      if (x2 - x1 < 2 || y2 - y1 < 2) {
+        if (isPeak) peakFate = 'degenerate box';
         continue;
       }
 
-      // Road damage on the sky/ceiling is a false positive. People and
-      // animals can stand higher, but not in the top strip of the frame.
-      final centerY = ((y1 + y2) / 2) / frameH;
-      final road = type == HazardType.pothole ||
-          type == HazardType.crack ||
-          type == HazardType.speedBump;
-      if (road && centerY < 0.38) continue;
-      if (!road && centerY < 0.08) continue;
+      final type = _typeForClass(bestCls, classCount);
+      if (type == null) {
+        if (isPeak) peakFate = 'unknown class';
+        continue;
+      }
+      final areaFrac =
+          ((x2 - x1) * (y2 - y1)) / math.max(1.0, frameW * frameH);
+      final need = thresholdFor(type, areaFrac: areaFrac);
+      if (bestScore < need) {
+        if (isPeak) peakFate = 'below ${need.toStringAsFixed(2)}';
+        continue;
+      }
 
+      final reject = _falsePositiveReason(
+        type: type,
+        x1: x1,
+        y1: y1,
+        x2: x2,
+        y2: y2,
+        frameW: frameW,
+        frameH: frameH,
+      );
+      if (reject != null) {
+        if (isPeak) peakFate = reject;
+        continue;
+      }
+
+      if (isPeak) peakFate = 'kept';
       dets.add(
         _Det(
           type: type,
@@ -488,7 +567,60 @@ class YoloM2Interpreter {
     }
 
     final peakType = peakCls >= 0 ? _typeForClass(peakCls, classCount) : null;
-    return _RawParseResult(dets, peak, peakType?.name ?? '-');
+    return _RawParseResult(dets, peak, peakType?.name ?? '-', peakFate);
+  }
+
+  /// Why a box looks like sky, dashboard/hood, or a huge fill, or null to
+  /// keep it. [minBoxAreaFraction] is low so far-ahead hazards still pass.
+  static String? _falsePositiveReason({
+    required HazardType type,
+    required double x1,
+    required double y1,
+    required double x2,
+    required double y2,
+    required int frameW,
+    required int frameH,
+  }) {
+    if (frameW <= 0 || frameH <= 0) return 'no frame';
+    final boxW = x2 - x1;
+    final boxH = y2 - y1;
+    if (boxW < 2 || boxH < 2) return 'degenerate box';
+    final areaFrac = (boxW * boxH) / (frameW * frameH);
+    final area = areaFrac.toStringAsFixed(2);
+    // A pothole right in front of the car legitimately fills the frame.
+    final maxArea = type == HazardType.pothole ? 0.65 : maxBoxAreaFraction;
+    if (areaFrac > maxArea) return 'too big $area';
+    if (areaFrac < minBoxAreaFraction) return 'too small';
+
+    final centerY = ((y1 + y2) / 2) / frameH;
+    final yBot = y2 / frameH;
+    final widthFrac = boxW / frameW;
+    final aspect = boxW / boxH;
+
+    // Wide strip sitting on the dashboard / bonnet.
+    if (yBot > 0.94 && widthFrac > 0.50) return 'dashboard strip';
+    if (centerY > 0.93 && areaFrac > 0.10) return 'dashboard fill';
+
+    if (type.isRoadHazard) {
+      // Only drop boxes sitting wholly in the sky. Far hazards sit in the
+      // upper third of a tilted mount and must still alert.
+      if (yBot < 0.18) return 'sky band';
+      final ratio = aspect.toStringAsFixed(1);
+      if (type == HazardType.pothole && aspect > 4.5) return 'too wide $ratio';
+      // Speed breakers are wide bars. 6.5 was dropping real bumps (9.8).
+      if (type == HazardType.speedBump && aspect > 12.0) {
+        return 'too wide $ratio';
+      }
+      if (type != HazardType.crack &&
+          type != HazardType.speedBump &&
+          aspect > 6.5) {
+        return 'too wide $ratio';
+      }
+    } else if (type.isLifeHazard) {
+      if (centerY < 0.08) return 'sky band';
+    }
+
+    return null;
   }
 
   /// Class scores are probabilities in [0, 1]. Some exports emit logits.
@@ -539,15 +671,19 @@ class YoloM2Interpreter {
     required double frameW,
     required double frameH,
   }) {
-    dets.sort((a, b) => b.confidence.compareTo(a.confidence));
+    if (dets.isEmpty) return const [];
+    final ranked = List<_Det>.of(dets)
+      ..sort((a, b) => b.confidence.compareTo(a.confidence));
     final kept = <_Det>[];
-    final suppressed = List<bool>.filled(dets.length, false);
-    for (var i = 0; i < dets.length; i++) {
+    final suppressed = List<bool>.filled(ranked.length, false);
+    for (var i = 0; i < ranked.length; i++) {
       if (suppressed[i]) continue;
-      kept.add(dets[i]);
-      for (var j = i + 1; j < dets.length; j++) {
+      kept.add(ranked[i]);
+      for (var j = i + 1; j < ranked.length; j++) {
         if (suppressed[j]) continue;
-        if (_iou(dets[i], dets[j]) > iouThreshold) suppressed[j] = true;
+        // Same class only: a person on a bump must not wipe the bump.
+        if (ranked[i].type != ranked[j].type) continue;
+        if (_iou(ranked[i], ranked[j]) > iouThreshold) suppressed[j] = true;
       }
     }
     return [
@@ -555,7 +691,7 @@ class YoloM2Interpreter {
         HazardDetection(
           type: d.type,
           confidence: d.confidence,
-          distanceMeters: _estimateDistanceMeters(d, frameW, frameH),
+          range: _rangeFromBox(d, frameW, frameH),
           left: (d.x1 / frameW).clamp(0.0, 1.0),
           top: (d.y1 / frameH).clamp(0.0, 1.0),
           right: (d.x2 / frameW).clamp(0.0, 1.0),
@@ -564,44 +700,20 @@ class YoloM2Interpreter {
     ];
   }
 
-  static double _estimateDistanceMeters(_Det d, double frameW, double frameH) {
+  static HazardRange _rangeFromBox(_Det d, double frameW, double frameH) {
     final boxW = math.max(1.0, d.x2 - d.x1);
     final boxH = math.max(1.0, d.y2 - d.y1);
     final areaFrac = (boxW * boxH) / math.max(1.0, frameW * frameH);
-    final cy = ((d.y1 + d.y2) / 2).clamp(0.0, frameH);
-    final yNorm = frameH <= 0 ? 0.5 : cy / frameH;
-
-    final isRoadSurface = d.type == HazardType.pothole ||
-        d.type == HazardType.crack ||
-        d.type == HazardType.speedBump;
-    if (isRoadSurface && areaFrac > 0.10) {
-      return 80;
+    final yNorm = frameH <= 0 ? 0.5 : ((d.y1 + d.y2) / 2) / frameH;
+    // Prefer far/mid so voice fires with time to react, not only when close.
+    if (d.type.isRoadHazard) {
+      if (areaFrac > 0.07 || yNorm > 0.80) return HazardRange.near;
+      if (areaFrac < 0.018 || yNorm < 0.58) return HazardRange.far;
+      return HazardRange.mid;
     }
-
-    final realWidthM = switch (d.type) {
-      HazardType.pothole => 0.9,
-      HazardType.speedBump => 2.4,
-      HazardType.crack => 1.6,
-      HazardType.person => 0.55,
-      HazardType.cow => 1.8,
-      HazardType.buffalo => 2.0,
-      HazardType.dog => 0.5,
-      HazardType.cat => 0.3,
-      HazardType.horse => 1.6,
-      HazardType.donkey => 1.3,
-      HazardType.goat => 0.7,
-      HazardType.roadSign => 0.7,
-      HazardType.wrongWay => 1.0,
-    };
-
-    const fovRad = 70 * math.pi / 180;
-    final focalPx = (frameW / 2) / math.tan(fovRad / 2);
-    final sizeBased = realWidthM * focalPx / boxW;
-    final posBased = 40 + (1.0 - yNorm) * 80;
-    final sizeWeight = areaFrac > 0.02 ? 0.55 : 0.35;
-    var meters = sizeWeight * sizeBased + (1 - sizeWeight) * posBased;
-    meters = meters.clamp(20.0, 120.0);
-    return ((meters / 10).round() * 10).toDouble();
+    if (areaFrac > 0.09 || yNorm > 0.78) return HazardRange.near;
+    if (areaFrac < 0.020 || yNorm < 0.42) return HazardRange.far;
+    return HazardRange.mid;
   }
 
   static double _iou(_Det a, _Det b) {

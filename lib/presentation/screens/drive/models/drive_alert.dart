@@ -52,10 +52,18 @@ class DriveAlert {
     if (type == null) return 0;
     return switch (type) {
       HazardType.wrongWay => 100,
-      HazardType.pothole || HazardType.crack || HazardType.speedBump => 80,
-      HazardType.person => 60,
-      HazardType.roadSign => 55,
-      _ => 40,
+      HazardType.person => 95,
+      HazardType.cow ||
+      HazardType.buffalo ||
+      HazardType.dog ||
+      HazardType.cat ||
+      HazardType.horse ||
+      HazardType.donkey ||
+      HazardType.goat => 90,
+      HazardType.speedBump => 75,
+      HazardType.pothole => 70,
+      HazardType.roadSign => 50,
+      HazardType.crack => 35,
     };
   }
 
@@ -63,7 +71,9 @@ class DriveAlert {
     if (kind == DriveAlertKind.overspeed) return 'WARNING';
     final type = event?.type;
     if (type == HazardType.wrongWay) return 'DANGER';
-    if (type == HazardType.person) return 'CAUTION';
+    if (type != null && type.isLifeHazard) return 'WATCH';
+    if (type == HazardType.speedBump) return 'SLOW';
+    if (type == HazardType.crack) return 'NOTE';
     return 'CAUTION';
   }
 
@@ -100,8 +110,12 @@ class DriveAlert {
   String? get metaLine {
     if (kind != DriveAlertKind.hazard || event == null) return null;
     final pct = (event!.confidence * 100).clamp(0, 99).round();
-    final dist = event!.distanceMeters?.round();
-    if (dist != null) return '$pct% confidence · ~${dist}m ahead';
+    final band = event!.range?.shortLabel;
+    final eta = event!.etaSeconds;
+    if (band != null && eta != null) {
+      return '$pct% · $band · ~${eta}s';
+    }
+    if (band != null) return '$pct% · $band';
     return '$pct% confidence';
   }
 }

@@ -63,6 +63,22 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
     if (mounted) await _refreshReady();
   }
 
+  static String _readyLine({
+    required bool cameraOk,
+    required bool locationOk,
+  }) {
+    if (!cameraOk && !locationOk) {
+      return 'Allow camera and location to start a drive.';
+    }
+    if (!cameraOk) {
+      return 'Allow camera access to detect road hazards.';
+    }
+    if (!locationOk) {
+      return 'Allow location to show speed and distance.';
+    }
+    return 'Camera and location are ready.';
+  }
+
   Future<void> _startDrive() async {
     await Navigator.of(context).pushNamed(AppRoutes.drive);
     if (!mounted) return;
@@ -90,7 +106,7 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
 
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, RaastaNavBar.contentInset),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, RaastaNavBar.contentInset),
         children: [
           PillAppBar(
             actions: [
@@ -108,43 +124,45 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _WelcomeHero(
             dateLabel: Format.longDate(now),
             title: '$greeting, $first',
-            subtitle: cameraOk
-                ? 'RAASTA is ready when you are.'
-                : 'Turn on camera before you start.',
+            subtitle: _readyLine(cameraOk: cameraOk, locationOk: locationOk),
             onStart: _startDrive,
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Text(
-            'Before you drive',
+            'Drive readiness',
             style: GoogleFonts.sora(
               fontSize: 15,
               fontWeight: FontWeight.w700,
               color: p.textPrimary,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _ReadyRow(
             items: [
               _ReadyItem(
                 icon: Icons.photo_camera_outlined,
                 label: 'Camera',
                 ok: cameraOk,
+                offLabel: 'Allow access',
                 onTap: () => _fixPermission(AppPermissionKind.camera),
               ),
               _ReadyItem(
                 icon: Icons.place_outlined,
                 label: 'GPS',
                 ok: locationOk,
+                offLabel: 'Allow access',
                 onTap: () => _fixPermission(AppPermissionKind.location),
               ),
               _ReadyItem(
                 icon: Icons.volume_up_outlined,
                 label: 'Voice',
                 ok: voiceOk,
+                offLabel: 'Off',
+                alwaysTappable: true,
                 onTap: () async {
                   await context.read<SettingsProvider>().setVoiceAlerts(
                     !settings.voiceAlerts,
@@ -153,7 +171,7 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Text(
             'Quick tips',
             style: GoogleFonts.sora(
@@ -162,7 +180,7 @@ class _DriveTabState extends State<DriveTab> with WidgetsBindingObserver {
               color: p.textPrimary,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           const _TipStrip(),
         ],
       ),
@@ -187,10 +205,10 @@ class _WelcomeHero extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
-        gradient: AppColors.driveGradient,
-        borderRadius: BorderRadius.circular(18),
+        gradient: AppColors.homeHeroGradient,
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -198,30 +216,30 @@ class _WelcomeHero extends StatelessWidget {
           Text(
             dateLabel,
             style: GoogleFonts.dmSans(
-              fontSize: 12,
-              color: AppColors.white.withValues(alpha: 0.8),
+              fontSize: 11,
+              color: AppColors.white.withValues(alpha: 0.68),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             title,
             style: GoogleFonts.sora(
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: FontWeight.w700,
               color: AppColors.white,
               height: 1.2,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             subtitle,
             style: GoogleFonts.dmSans(
-              fontSize: 13,
-              color: AppColors.white.withValues(alpha: 0.88),
+              fontSize: 12.5,
+              color: AppColors.white.withValues(alpha: 0.78),
               height: 1.35,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Material(
             color: AppColors.white,
             borderRadius: BorderRadius.circular(99),
@@ -230,7 +248,7 @@ class _WelcomeHero extends StatelessWidget {
               borderRadius: BorderRadius.circular(99),
               child: Padding(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -243,7 +261,7 @@ class _WelcomeHero extends StatelessWidget {
                     Text(
                       'Start drive',
                       style: GoogleFonts.dmSans(
-                        fontSize: 14,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w700,
                         color: AppColors.tealDeep,
                       ),
@@ -264,13 +282,17 @@ class _ReadyItem {
     required this.icon,
     required this.label,
     required this.ok,
+    required this.offLabel,
     required this.onTap,
+    this.alwaysTappable = false,
   });
 
   final IconData icon;
   final String label;
   final bool ok;
+  final String offLabel;
   final VoidCallback onTap;
+  final bool alwaysTappable;
 }
 
 class _ReadyRow extends StatelessWidget {
@@ -308,32 +330,38 @@ class _ReadyChip extends StatelessWidget {
       color: palette.surface,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
-        onTap: ok ? null : item.onTap,
+        onTap: ok && !item.alwaysTappable ? null : item.onTap,
         borderRadius: BorderRadius.circular(14),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: palette.border),
+            border: Border.all(
+              color: ok ? palette.border : AppColors.amber.withValues(alpha: 0.45),
+            ),
           ),
           child: Column(
             children: [
-              Icon(item.icon, size: 20, color: palette.brand),
-              const SizedBox(height: 6),
+              Icon(item.icon, size: 18, color: palette.brand),
+              const SizedBox(height: 4),
               Text(
                 item.label,
                 style: GoogleFonts.dmSans(
                   fontSize: 12,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   color: palette.textPrimary,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
-                ok ? 'On' : 'Off',
+                ok ? 'On' : item.offLabel,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.dmSans(
-                  fontSize: 11,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w600,
+                  height: 1.15,
                   color: tint,
                 ),
               ),
@@ -349,56 +377,100 @@ class _TipStrip extends StatelessWidget {
   const _TipStrip();
 
   static const _tips = [
-    (Icons.phone_android_outlined, 'Mount phone', 'Rear camera to road'),
-    (Icons.volume_up_outlined, 'Voice ready', 'Or use visual alerts'),
-    (Icons.place_outlined, 'Location on', 'Needed for speed'),
+    (
+      Icons.phone_android_outlined,
+      'Mount the phone',
+      'Point the rear camera at the road.',
+    ),
+    (
+      Icons.volume_up_outlined,
+      'Keep voice on',
+      'Alerts are spoken so you can watch the road.',
+    ),
+    (
+      Icons.place_outlined,
+      'Leave location on',
+      'GPS is used for speed and distance.',
+    ),
   ];
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
 
-    return SizedBox(
-      height: 96,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _tips.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
-        itemBuilder: (context, i) {
-          final tip = _tips[i];
-          return Container(
-            width: 132,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: p.surface,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: p.border),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      decoration: BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: p.border),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < _tips.length; i++) ...[
+            if (i > 0)
+              Divider(height: 1, color: p.border.withValues(alpha: 0.9)),
+            _TipRow(
+              icon: _tips[i].$1,
+              title: _tips[i].$2,
+              body: _tips[i].$3,
             ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TipRow extends StatelessWidget {
+  const _TipRow({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: p.brand),
+          const SizedBox(width: 10),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(tip.$1, size: 18, color: p.brand),
-                const Spacer(),
                 Text(
-                  tip.$2,
+                  title,
                   style: GoogleFonts.dmSans(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                     color: p.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  tip.$3,
+                  body,
                   style: GoogleFonts.dmSans(
-                    fontSize: 11,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
                     color: p.textSecondary,
+                    height: 1.3,
                   ),
                 ),
               ],
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

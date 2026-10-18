@@ -23,15 +23,15 @@ class SpeedReportTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!hasTrips) {
       return const ReportEmpty(
-        message: 'Speed patterns appear once RAASTA has logged a drive.',
-        showStartDrive: true,
+        title: 'No saved drives',
+        message: 'Save a drive from Home to see speed totals.',
       );
     }
 
     if (report.isEmpty) {
       return const ReportEmpty(
-        message: 'Speed patterns appear once RAASTA has logged a drive.',
-        showStartDrive: true,
+        title: 'No speed data',
+        message: 'Average speed appears after a saved drive with GPS.',
       );
     }
 
@@ -40,25 +40,27 @@ class SpeedReportTab extends StatelessWidget {
         : AppColors.alert;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, RaastaNavBar.contentInset),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, RaastaNavBar.contentInset),
       children: [
         const SectionLabel('Speed statistics'),
         Row(
           children: [
             Expanded(
               child: StatTile(
-                icon: Icons.speed_rounded,
+                icon: Icons.speed_outlined,
                 value: '${report.avgSpeedKph.round()} km/h',
                 label: 'Average speed',
+                compact: true,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: StatTile(
-                icon: Icons.rocket_launch_rounded,
+                icon: Icons.speed_outlined,
                 value: '${report.maxSpeedKph.round()} km/h',
                 label: 'Top speed',
-                accent: AppColors.sky,
+                accent: AppColors.teal,
+                compact: true,
               ),
             ),
           ],
@@ -68,56 +70,53 @@ class SpeedReportTab extends StatelessWidget {
           children: [
             Expanded(
               child: StatTile(
-                icon: Icons.report_gmailerrorred_rounded,
+                icon: Icons.warning_amber_outlined,
                 value: '${report.overspeedCount}',
-                label: 'Overspeed events',
+                label: 'Overspeed alerts',
                 accent: overspeedTint,
+                compact: true,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: StatTile(
-                icon: Icons.trending_up_rounded,
+                icon: Icons.trending_up_outlined,
                 value: report.fastestDay ?? '—',
                 label: 'Fastest day',
-                accent: AppColors.violet,
+                compact: true,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Average speed by day'),
         AppCard(
-          padding: const EdgeInsets.fromLTRB(14, 18, 16, 14),
+          radius: 14,
+          padding: const EdgeInsets.fromLTRB(14, 16, 16, 14),
           child: LineChart(
             values: report.dailyAvgSpeed,
             labels: report.dayLabels,
-            color: AppColors.sky,
+            color: AppColors.teal,
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         const SectionLabel('Speed insights'),
         AppCard(
+          radius: 14,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Column(
             children: [
               InsightRow(
-                icon: Icons.wb_twilight_rounded,
+                icon: Icons.wb_twilight_outlined,
                 label: 'Calmest driving window',
                 value: report.calmestPart?.label ?? '—',
-                tint: AppColors.sky,
+                tint: AppColors.teal,
               ),
               InsightRow(
-                icon: Icons.calendar_today_rounded,
-                label: 'Highest average day',
-                value: report.fastestDay ?? '—',
-                tint: AppColors.violet,
-              ),
-              InsightRow(
-                icon: Icons.shield_rounded,
+                icon: Icons.shield_outlined,
                 label: report.overspeedCount == 0
-                    ? 'No speed violations logged'
-                    : 'Speed violations recorded',
+                    ? 'No overspeed alerts'
+                    : 'Overspeed alerts recorded',
                 value: '${report.overspeedCount}',
                 tint: overspeedTint,
               ),

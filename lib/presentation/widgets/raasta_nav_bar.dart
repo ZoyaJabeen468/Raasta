@@ -27,10 +27,10 @@ class RaastaNavBar extends StatelessWidget {
   final VoidCallback onCenterTap;
 
   /// Bottom padding a scroll view needs so its last item clears the bar.
-  static const contentInset = 108.0;
+  static const contentInset = 96.0;
 
-  static const _barHeight = 68.0;
-  static const _fabSize = 60.0;
+  static const _barHeight = 64.0;
+  static const _fabSize = 52.0;
 
   @override
   Widget build(BuildContext context) {
@@ -56,8 +56,8 @@ class RaastaNavBar extends StatelessWidget {
                 boxShadow: [
                   BoxShadow(
                     color: p.shadow,
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
@@ -92,21 +92,20 @@ class RaastaNavBar extends StatelessWidget {
                     width: _fabSize,
                     height: _fabSize,
                     decoration: BoxDecoration(
-                      gradient: AppColors.driveGradient,
+                      gradient: AppColors.homeHeroGradient,
                       shape: BoxShape.circle,
-                      border: Border.all(color: p.washBottom, width: 4),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.teal.withValues(alpha: 0.42),
-                          blurRadius: 18,
-                          offset: const Offset(0, 7),
+                          color: Colors.black.withValues(alpha: 0.12),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
                         ),
                       ],
                     ),
                     child: Icon(
                       centerIcon,
                       color: AppColors.white,
-                      size: 27,
+                      size: 24,
                     ),
                   ),
                 ),

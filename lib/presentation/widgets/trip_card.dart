@@ -10,10 +10,16 @@ import 'app_card.dart';
 /// Rich summary of one drive: timestamp, score chip, key figures and the
 /// hazard types picked up along the way.
 class TripCard extends StatelessWidget {
-  const TripCard({super.key, required this.trip, this.onTap});
+  const TripCard({
+    super.key,
+    required this.trip,
+    this.onTap,
+    this.compact = false,
+  });
 
   final TripRecord trip;
   final VoidCallback? onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -24,9 +30,87 @@ class TripCard extends StatelessWidget {
     final hazards = trip.hazards.entries.where((e) => e.value > 0).toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
+    if (compact) {
+      final meta = [
+        Format.distance(trip.distanceMeters),
+        Format.duration(trip.durationSeconds),
+        '${trip.hazardCount} ${trip.hazardCount == 1 ? 'hazard' : 'hazards'}',
+      ].join(' · ');
+
+      return AppCard(
+        radius: 14,
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        onTap: onTap,
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: tint.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(
+                Icons.directions_car_outlined,
+                size: 18,
+                color: tint,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    Format.tripStamp(trip.startedAt),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: p.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    meta,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 12,
+                      color: p.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: tint.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+                border: Border.all(color: tint.withValues(alpha: 0.35)),
+              ),
+              child: Text(
+                '$score',
+                style: GoogleFonts.sora(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: tint,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return AppCard(
-      radius: 20,
-      padding: const EdgeInsets.all(16),
+      radius: 14,
+      padding: const EdgeInsets.all(14),
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -34,15 +118,15 @@ class TripCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
                   color: tint.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  Icons.directions_car_filled_rounded,
-                  size: 20,
+                  Icons.directions_car_outlined,
+                  size: 18,
                   color: tint,
                 ),
               ),
@@ -99,17 +183,17 @@ class TripCard extends StatelessWidget {
           Row(
             children: [
               _TripFigure(
-                icon: Icons.route_rounded,
+                icon: Icons.route_outlined,
                 value: Format.distance(trip.distanceMeters),
                 label: 'Distance',
               ),
               _TripFigure(
-                icon: Icons.schedule_rounded,
+                icon: Icons.schedule_outlined,
                 value: Format.duration(trip.durationSeconds),
                 label: 'Duration',
               ),
               _TripFigure(
-                icon: Icons.warning_amber_rounded,
+                icon: Icons.warning_amber_outlined,
                 value: '${trip.hazardCount}',
                 label: trip.hazardCount == 1 ? 'Hazard' : 'Hazards',
               ),
