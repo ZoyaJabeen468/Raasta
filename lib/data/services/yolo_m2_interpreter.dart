@@ -87,7 +87,11 @@ class YoloM2Interpreter {
   static const numClasses = 11;
 
   static const confThreshold = 0.42;
-  static const speedBumpThreshold = 0.50;
+  /// Same as pothole. 0.50 was dropping real painted breakers (0.43–0.49).
+  static const speedBumpThreshold = 0.42;
+  /// Pass 5 crack mAP50 is 0.18. A slightly lower gate surfaces more of
+  /// the weak class; sky / dashboard filters still cut lane-line FPs.
+  static const crackThreshold = 0.34;
   static const personThreshold = 0.40;
   static const animalThreshold = 0.58;
   static const iouThreshold = 0.45;
@@ -111,6 +115,7 @@ class YoloM2Interpreter {
   static double thresholdFor(HazardType type, {double? areaFrac}) {
     var t = confThreshold;
     if (type == HazardType.speedBump) t = speedBumpThreshold;
+    if (type == HazardType.crack) t = crackThreshold;
     if (isAnimal(type)) t = animalThreshold;
     if (type == HazardType.person) t = personThreshold;
     // Small distant boxes are weaker; do not relax animals (false positives).
@@ -118,7 +123,8 @@ class YoloM2Interpreter {
         areaFrac < 0.01 &&
         !isAnimal(type) &&
         (type.isRoadHazard || type == HazardType.person)) {
-      t = math.max(0.36, t - 0.08);
+      final floor = type == HazardType.crack ? 0.30 : 0.36;
+      t = math.max(floor, t - 0.08);
     }
     return t;
   }
@@ -590,7 +596,9 @@ class YoloM2Interpreter {
     // A pothole right in front of the car legitimately fills the frame.
     final maxArea = type == HazardType.pothole ? 0.65 : maxBoxAreaFraction;
     if (areaFrac > maxArea) return 'too big $area';
-    if (areaFrac < minBoxAreaFraction) return 'too small';
+    final minArea =
+        type == HazardType.crack ? 0.00032 : minBoxAreaFraction;
+    if (areaFrac < minArea) return 'too small';
 
     final centerY = ((y1 + y2) / 2) / frameH;
     final yBot = y2 / frameH;
@@ -607,9 +615,12 @@ class YoloM2Interpreter {
       if (yBot < 0.18) return 'sky band';
       final ratio = aspect.toStringAsFixed(1);
       if (type == HazardType.pothole && aspect > 4.5) return 'too wide $ratio';
-      // Speed breakers are wide bars. 6.5 was dropping real bumps (9.8).
-      if (type == HazardType.speedBump && aspect > 12.0) {
-        return 'too wide $ratio';
+      // Painted breakers are wide. A flat cap of 12 killed the 0.63
+      // speedump1 box. Allow a long bar on the road surface; still kill
+      // a horizon line in the upper frame.
+      if (type == HazardType.speedBump) {
+        final cap = yBot >= 0.40 ? 22.0 : 12.0;
+        if (aspect > cap) return 'too wide $ratio';
       }
       if (type != HazardType.crack &&
           type != HazardType.speedBump &&

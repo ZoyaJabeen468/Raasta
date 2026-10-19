@@ -60,6 +60,12 @@ __pycache__/
 # Indoor camera test clips (local only)
 /test_media/
 
+# FYP Word report, drafts, and extracted snapshots (local only)
+/docs/fyp-report/
+
+# CV / resume (local only)
+/resume/
+
 # Local / secrets
 .env
 .env.*
