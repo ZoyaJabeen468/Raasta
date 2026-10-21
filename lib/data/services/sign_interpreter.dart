@@ -5,31 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
 
+import '../models/sign_detection.dart';
 import '../models/traffic_sign.dart';
 
-/// One decoded sign from a single frame.
-class SignDetection {
-  const SignDetection({
-    required this.sign,
-    required this.confidence,
-    required this.left,
-    required this.top,
-    required this.right,
-    required this.bottom,
-    required this.at,
-  });
-
-  final TrafficSign sign;
-  final double confidence;
-
-  /// Normalized box in the full camera frame (0–1).
-  final double left;
-  final double top;
-  final double right;
-  final double bottom;
-
-  final DateTime at;
-}
+export '../models/sign_detection.dart';
 
 /// Letterboxed model input plus the mapping back to the camera frame.
 /// Plain data, so it can be built in a background isolate.
@@ -60,7 +39,11 @@ class SignPreparedFrame {
 /// - Legacy NHWC `[1, H, W, 3]`
 /// - Ultralytics LiteRT NCHW `[1, 3, H, W]`
 class SignInterpreter {
-  SignInterpreter();
+  /// [stillImage] is for picked photos (Sign test screen): close-ups and
+  /// any position in the picture are allowed, unlike the live camera.
+  SignInterpreter({this.stillImage = false});
+
+  final bool stillImage;
 
   static const assetPath = 'assets/models/raasta_signs.tflite';
   static const numClasses = TrafficSign.numClasses;
@@ -406,11 +389,12 @@ class SignInterpreter {
       final boxArea = (x2 - x1) * (y2 - y1);
       if (frameArea <= 0) continue;
       final areaFrac = boxArea / frameArea;
-      if (areaFrac > maxBoxAreaFraction || areaFrac < minBoxAreaFraction) {
-        continue;
+      if (areaFrac < minBoxAreaFraction) continue;
+      if (!stillImage) {
+        if (areaFrac > maxBoxAreaFraction) continue;
+        final centerY = ((y1 + y2) / 2) / frameH;
+        if (centerY < 0.04 || centerY > 0.78) continue;
       }
-      final centerY = ((y1 + y2) / 2) / frameH;
-      if (centerY < 0.04 || centerY > 0.78) continue;
 
       final sign = TrafficSign.fromModel(bestCls, classCount);
       if (sign == null) continue;

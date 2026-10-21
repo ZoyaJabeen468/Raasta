@@ -26,7 +26,8 @@ class DriveSignCard extends StatelessWidget {
       ),
       child: s == null
           ? const SizedBox.shrink(key: ValueKey('no_sign'))
-          : _SignChip(key: ValueKey(s), detection: s),
+          // Keyed by sighting so an OCR update refreshes in place.
+          : _SignChip(key: ValueKey((s.sign, s.at)), detection: s),
     );
   }
 }
@@ -40,10 +41,14 @@ class _SignChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final sign = detection.sign;
     final tint = sign.color;
+    final limit = detection.ocrSpeedLimit;
+    final title = limit != null ? 'Limit $limit' : sign.title;
+    final ocr = detection.ocrText;
+    final ocrLine = ocr == null || ocr.isEmpty || ocr == '$limit' ? null : ocr;
 
     return Semantics(
       liveRegion: true,
-      label: 'Road sign: ${sign.title}',
+      label: 'Road sign: $title',
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
         decoration: BoxDecoration(
@@ -64,28 +69,42 @@ class _SignChip extends StatelessWidget {
               child: Icon(sign.icon, color: Colors.white, size: 22),
             ),
             const SizedBox(width: 10),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'ROAD SIGN',
-                  style: GoogleFonts.dmSans(
-                    color: tint,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.1,
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 220),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ROAD SIGN',
+                    style: GoogleFonts.dmSans(
+                      color: tint,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                    ),
                   ),
-                ),
-                Text(
-                  sign.title,
-                  style: GoogleFonts.sora(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+                  Text(
+                    title,
+                    style: GoogleFonts.sora(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-              ],
+                  if (ocrLine != null)
+                    Text(
+                      ocrLine,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.dmSans(
+                        color: Colors.white70,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ],
         ),

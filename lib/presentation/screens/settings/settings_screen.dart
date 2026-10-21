@@ -267,6 +267,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 22),
+            const SectionLabel('M3 · Traffic signs'),
+            SettingsGroup(
+              children: [
+                SettingsRow(
+                  icon: Icons.traffic_outlined,
+                  title: 'Sign recognition test',
+                  subtitle: 'Run the sign model and OCR on a photo',
+                  onTap: () =>
+                      Navigator.of(context).pushNamed(AppRoutes.signTest),
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
             const SectionLabel('Permissions'),
             SettingsGroup(
               children: [

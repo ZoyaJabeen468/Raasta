@@ -23,6 +23,7 @@ import 'presentation/screens/settings/change_password_screen.dart';
 import 'presentation/screens/settings/delete_account_screen.dart';
 import 'presentation/screens/settings/info_screen.dart';
 import 'presentation/screens/settings/settings_screen.dart';
+import 'presentation/screens/settings/sign_test_screen.dart';
 import 'presentation/screens/splash_screen.dart';
 import 'presentation/screens/welcome_screen.dart';
 
@@ -67,6 +68,7 @@ class RaastaApp extends StatelessWidget {
             AppRoutes.changeEmail: (_) => const ChangeEmailScreen(),
             AppRoutes.changePassword: (_) => const ChangePasswordScreen(),
             AppRoutes.deleteAccount: (_) => const DeleteAccountScreen(),
+            AppRoutes.signTest: (_) => const SignTestScreen(),
             AppRoutes.about: (_) => InfoScreen.about,
             AppRoutes.faq: (_) => InfoScreen.faq,
             AppRoutes.privacy: (_) => InfoScreen.privacy,

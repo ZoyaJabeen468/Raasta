@@ -83,6 +83,7 @@ class DriveProvider extends ChangeNotifier {
 
   StreamSubscription<HazardDetection>? _detectionSub;
   StreamSubscription<SignDetection>? _signSub;
+  StreamSubscription<SignDetection>? _signReadingSub;
   Timer? _signCardTimer;
   SignDetection? _lastSign;
   SignDetection? _visibleSign;
@@ -288,10 +289,13 @@ class DriveProvider extends ChangeNotifier {
   Future<void> _startSignDetection() async {
     await _signSub?.cancel();
     _signSub = null;
+    await _signReadingSub?.cancel();
+    _signReadingSub = null;
     final d = _detector;
     if (d is! CameraYoloHazardDetector) return;
     if (!await _signs.start()) return;
     _signSub = _signs.detections.listen(_onSign);
+    _signReadingSub = _signs.readings.listen(_onSignReading);
     d.onFrameTap = _signs.onCameraFrame;
   }
 
@@ -369,6 +373,8 @@ class DriveProvider extends ChangeNotifier {
     if (d is CameraYoloHazardDetector) d.onFrameTap = null;
     await _signSub?.cancel();
     _signSub = null;
+    await _signReadingSub?.cancel();
+    _signReadingSub = null;
     _signCardTimer?.cancel();
     _visibleSign = null;
     await _signs.stop();
@@ -673,33 +679,18 @@ class DriveProvider extends ChangeNotifier {
     return sec.round().clamp(2, 15);
   }
 
-  void _onSign(SignDetection sign) {
-    if (_status == DriveStatus.idle ||
-        _status == DriveStatus.finished ||
-        _status == DriveStatus.paused) {
-      return;
-    }
+  bool get _signsActive =>
+      _status != DriveStatus.idle &&
+      _status != DriveStatus.finished &&
+      _status != DriveStatus.paused;
 
-    _lastSign = sign;
-    _visibleSign = sign;
-    final limit = sign.sign.speedLimit;
-    if (limit != null && limit > 0) {
-      _speedLimitKph = limit;
-    }
-    _signCardTimer?.cancel();
-    _signCardTimer = Timer(signCardDuration, () {
-      if (!identical(_visibleSign, sign)) return;
-      _visibleSign = null;
-      notifyListeners();
-    });
+  void _onSign(SignDetection sign) {
+    if (!_signsActive) return;
+
+    _showSignCard(sign);
     notifyListeners();
 
-    if (sign.sign.action != SignAction.speak || !voiceEnabled) return;
-    final lastOverspeed = _lastOverspeedVoiceAt;
-    if (lastOverspeed != null &&
-        DateTime.now().difference(lastOverspeed) < signAfterOverspeedGap) {
-      return;
-    }
+    if (sign.sign.action != SignAction.speak || !_signMayTalk) return;
     unawaited(
       _tts.announceSign(
         _language,
@@ -709,10 +700,58 @@ class DriveProvider extends ChangeNotifier {
     );
   }
 
+  /// OCR results from [SignDetector.readings].
+  void _onSignReading(SignDetection reading) {
+    if (!_signsActive) return;
+
+    final limit = reading.ocrSpeedLimit;
+    if (reading.sign.isSpeedLimitCandidate) {
+      // M4: only an OCR-read number changes the limit, never the label.
+      if (limit == null) return;
+      _speedLimitKph = limit;
+      _showSignCard(reading);
+      notifyListeners();
+      if (_signMayTalk) {
+        unawaited(_tts.announceSpeedLimit(_language, limitKph: limit));
+      }
+      return;
+    }
+
+    // Other signs: add the OCR text to the card already on screen. Raw OCR
+    // text is never spoken (too noisy).
+    final visible = _visibleSign;
+    if (visible == null || !visible.sameSightingAs(reading)) return;
+    _visibleSign = reading;
+    _lastSign = reading;
+    notifyListeners();
+  }
+
+  void _showSignCard(SignDetection sign) {
+    _lastSign = sign;
+    _visibleSign = sign;
+    _signCardTimer?.cancel();
+    _signCardTimer = Timer(signCardDuration, () {
+      final visible = _visibleSign;
+      if (visible == null || !visible.sameSightingAs(sign)) return;
+      _visibleSign = null;
+      notifyListeners();
+    });
+  }
+
+  /// Signs don't talk right after an overspeed warning (hazards are
+  /// handled inside [TtsService.announceSign]).
+  bool get _signMayTalk {
+    if (!voiceEnabled) return false;
+    final lastOverspeed = _lastOverspeedVoiceAt;
+    return lastOverspeed == null ||
+        DateTime.now().difference(lastOverspeed) >= signAfterOverspeedGap;
+  }
+
   @override
   void dispose() {
     _detectionSub?.cancel();
     _signSub?.cancel();
+    _signReadingSub?.cancel();
     _signCardTimer?.cancel();
     final d = _detector;
     if (d is CameraYoloHazardDetector) d.onFrameTap = null;

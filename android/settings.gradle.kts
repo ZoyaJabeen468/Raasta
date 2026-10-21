@@ -13,7 +13,10 @@ pluginManagement {
     repositories {
         google()
         mavenCentral()
-        gradlePluginPortal()
+        // plugins.gradle.org/m2 works on this campus network; the default
+        // gradlePluginPortal() host (plugins-artifacts.gradle.org) does not.
+        maven("https://plugins.gradle.org/m2/")
+        maven("https://repo.maven.apache.org/maven2/")
     }
 }
 
