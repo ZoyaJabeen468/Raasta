@@ -7,38 +7,86 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 import '../models/traffic_sign.dart';
+import 'ocr_service.dart';
+import 'sign_confirmer.dart';
 import 'sign_interpreter.dart';
 
 export 'sign_interpreter.dart' show SignDetection;
 
-/// Module 3: confirms traffic signs from shared camera frames.
+/// Padding added around a sign box before OCR (fraction of box size).
+const signCropPadding = 0.15;
+
+/// Crops smaller than this on the short side are too blurry to read.
+const minSignCropSide = 48;
+
+/// Normalized box [left, top, right, bottom] grown by [signCropPadding]
+/// and clamped to the frame.
+List<double> paddedSignBox(SignDetection d) {
+  final padX = (d.right - d.left) * signCropPadding;
+  final padY = (d.bottom - d.top) * signCropPadding;
+  return [
+    (d.left - padX).clamp(0.0, 1.0),
+    (d.top - padY).clamp(0.0, 1.0),
+    (d.right + padX).clamp(0.0, 1.0),
+    (d.bottom + padY).clamp(0.0, 1.0),
+  ];
+}
+
+/// Padded crop of [d] from an upright image (Sign test screen). Null when
+/// the crop is under [minSignCropSide].
+img.Image? cropSignFromImage(img.Image upright, SignDetection d) {
+  final box = paddedSignBox(d);
+  final x = (box[0] * upright.width).floor();
+  final y = (box[1] * upright.height).floor();
+  final w = (box[2] * upright.width).ceil() - x;
+  final h = (box[3] * upright.height).ceil() - y;
+  if (w < minSignCropSide || h < minSignCropSide) return null;
+  return img.copyCrop(upright, x: x, y: y, width: w, height: h);
+}
+
+/// Module 3: confirms traffic signs from shared camera frames, then reads
+/// them with OCR.
 ///
 /// Does not own the camera. Frames are pushed in via [onCameraFrame] (wired
 /// to [CameraYoloHazardDetector.onFrameTap]) so the camera is opened once.
 ///
-/// A sign is emitted on [detections] only when it is seen in
-/// [requiredStreak] consecutive inferences and hasn't been emitted in the
-/// last [signCooldown]. [SignAction.ignore] classes are never emitted.
+/// Confirmation (streak + cooldown) is done by [SignConfirmer]. Confirmed
+/// spoken/shown signs go out on [detections] straight away. OCR then runs
+/// in the background, gated by [OcrGate], on a high-res crop of the same
+/// frame, and results go out on [readings]:
+/// - the speed-limit candidate (class 0) is emitted only when OCR reads a
+///   valid limit; it never appears on [detections].
+/// - other signs are re-emitted with [SignDetection.ocrText] when text
+///   was found.
 class SignDetector {
-  SignDetector({SignInterpreter? interpreter})
-    : _model = interpreter ?? SignInterpreter();
+  SignDetector({SignInterpreter? interpreter, OcrService? ocr})
+    : _model = interpreter ?? SignInterpreter(),
+      _ocr = ocr ?? OcrService();
 
   final SignInterpreter _model;
+  final OcrService _ocr;
   final _controller = StreamController<SignDetection>.broadcast();
+  final _readings = StreamController<SignDetection>.broadcast();
 
   static const minInferGap = Duration(milliseconds: 2500);
-  static const requiredStreak = 3;
-  static const signCooldown = Duration(seconds: 20);
   static const confThreshold = SignInterpreter.confThreshold;
+
+  /// Longest side of an OCR crop; keeps the YUV→RGB work small.
+  static const maxCropSide = 640;
+
+  final _confirmer = SignConfirmer(confThreshold: confThreshold);
+  final _ocrGate = OcrGate();
 
   bool _running = false;
   bool _busy = false;
   DateTime? _lastInferAt;
   DateTime? _lastDebugLog;
-  final Map<TrafficSign, int> _streak = {};
-  final Map<TrafficSign, DateTime> _lastEmitAt = {};
 
+  /// Confirmed signs to show (and speak, for [SignAction.speak]).
   Stream<SignDetection> get detections => _controller.stream;
+
+  /// OCR results: speed-limit readings and text for confirmed signs.
+  Stream<SignDetection> get readings => _readings.stream;
   bool get isReady => _model.isReady;
   double get debugPeakScore => _model.lastPeakScore;
   String get debugPeakLabel => _model.lastPeakLabel;
@@ -54,15 +102,17 @@ class SignDetector {
 
   Future<void> stop() async {
     _running = false;
-    _streak.clear();
-    _lastEmitAt.clear();
+    _confirmer.reset();
+    _ocrGate.reset();
     _lastInferAt = null;
   }
 
   void dispose() {
     _running = false;
     _model.close();
+    _ocr.dispose();
     _controller.close();
+    _readings.close();
   }
 
   /// Called from the camera image-stream callback. Copies the frame and
@@ -105,25 +155,19 @@ class SignDetector {
       // Pixel work off the UI isolate, or the camera preview freezes.
       final size = _model.inputSize;
       final nchw = _model.isNchw;
+      final rotation = _SignFrame.rotationFor(
+        sensorOrientation: sensorOrientation,
+        deviceOrientation: deviceOrientation,
+        isFront: isFront,
+      );
       final prepared = await Isolate.run(() {
-        final rgb = snap.toRgb(
-          maxSide: size,
-          sensorOrientation: sensorOrientation,
-          deviceOrientation: deviceOrientation,
-          isFront: isFront,
-        );
+        final rgb = snap.toRgb(maxSide: size, rotation: rotation);
         if (rgb == null) return null;
         return SignInterpreter.prepareFrame(rgb, size, nchw);
       });
       if (prepared == null || !_running) return;
 
-      final hits = (await _model.detectPrepared(prepared))
-          .where(
-            (h) =>
-                h.confidence >= confThreshold &&
-                h.sign.action != SignAction.ignore,
-          )
-          .toList();
+      final hits = await _model.detectPrepared(prepared);
 
       final now = DateTime.now();
       if (_lastDebugLog == null ||
@@ -132,7 +176,13 @@ class SignDetector {
         debugPrint('Signs ${_model.lastDebug} hits=${hits.length}');
       }
 
-      _handleHits(hits, now);
+      final pick = _confirmer.add(hits, now);
+      if (pick == null) return;
+      if (!pick.sign.isSpeedLimitCandidate && !_controller.isClosed) {
+        _controller.add(pick);
+      }
+      // Not awaited: the next camera frame doesn't wait for OCR.
+      unawaited(_readSign(pick, snap, rotation, now));
     } catch (e, st) {
       debugPrint('Sign inference error: $e\n$st');
     } finally {
@@ -140,38 +190,44 @@ class SignDetector {
     }
   }
 
-  void _handleHits(List<SignDetection> hits, DateTime now) {
-    // Best box per sign for this frame.
-    final best = <TrafficSign, SignDetection>{};
-    for (final h in hits) {
-      final prev = best[h.sign];
-      if (prev == null || h.confidence > prev.confidence) best[h.sign] = h;
+  Future<void> _readSign(
+    SignDetection pick,
+    _SignFrame snap,
+    int rotation,
+    DateTime now,
+  ) async {
+    final label = pick.sign.classLabel;
+    if (!OcrService.isSupported) return;
+    if (!_ocrGate.tryBegin(pick.sign, now)) {
+      debugPrint('RAASTA OCR: sign=$label skipped (gate)');
+      return;
     }
+    try {
+      final box = paddedSignBox(pick);
+      final crop = await Isolate.run(
+        () => snap.cropRgb(box: box, rotation: rotation, maxSide: maxCropSide),
+      );
+      if (crop == null) {
+        debugPrint('RAASTA OCR: sign=$label skipped (crop too small)');
+        return;
+      }
+      if (!_running) return;
 
-    // Streaks only survive across consecutive frames.
-    _streak.removeWhere((sign, _) => !best.containsKey(sign));
-    for (final sign in best.keys) {
-      _streak[sign] = (_streak[sign] ?? 0) + 1;
+      final result = await _ocr.readSign(crop, sign: label);
+      if (result == null || !_running || _readings.isClosed) return;
+
+      if (pick.sign.isSpeedLimitCandidate) {
+        final limit = result.speedLimit;
+        if (limit == null) return;
+        _readings.add(pick.withOcr(text: result.text, speedLimit: limit));
+      } else if (result.text.isNotEmpty) {
+        _readings.add(pick.withOcr(text: result.text));
+      }
+    } catch (e) {
+      debugPrint('RAASTA OCR: sign=$label failed: $e');
+    } finally {
+      _ocrGate.end();
     }
-
-    final ready = best.values.where((d) {
-      if ((_streak[d.sign] ?? 0) < requiredStreak) return false;
-      final last = _lastEmitAt[d.sign];
-      return last == null || now.difference(last) >= signCooldown;
-    }).toList();
-    if (ready.isEmpty) return;
-
-    // One sign per inference: spoken signs first, then confidence.
-    ready.sort((a, b) {
-      final ap = a.sign.action == SignAction.speak ? 1 : 0;
-      final bp = b.sign.action == SignAction.speak ? 1 : 0;
-      if (ap != bp) return bp.compareTo(ap);
-      return b.confidence.compareTo(a.confidence);
-    });
-    final pick = ready.first;
-    _lastEmitAt[pick.sign] = now;
-    _streak[pick.sign] = 0;
-    if (!_controller.isClosed) _controller.add(pick);
   }
 }
 
@@ -225,48 +281,95 @@ class _SignFrame {
     );
   }
 
-  /// Upright RGB frame, subsampled only as far as the model needs
-  /// (signs are small, so keep as much detail as possible).
-  img.Image? toRgb({
-    required int maxSide,
+  /// Degrees to rotate the sensor image so it is upright.
+  static int rotationFor({
     required int sensorOrientation,
     required DeviceOrientation deviceOrientation,
     required bool isFront,
   }) {
+    final deviceDeg = switch (deviceOrientation) {
+      DeviceOrientation.portraitUp => 0,
+      DeviceOrientation.landscapeLeft => 90,
+      DeviceOrientation.portraitDown => 180,
+      DeviceOrientation.landscapeRight => 270,
+    };
+    return isFront
+        ? (sensorOrientation + deviceDeg) % 360
+        : (sensorOrientation - deviceDeg + 360) % 360;
+  }
+
+  /// Upright RGB frame, subsampled only as far as the model needs
+  /// (signs are small, so keep as much detail as possible).
+  img.Image? toRgb({required int maxSide, required int rotation}) {
     try {
       final longest = width > height ? width : height;
       final step = (longest ~/ maxSide).clamp(1, 8);
-      final rgb = isBgra ? _bgraToImage(step) : _yuv420ToImage(step);
+      final rgb = isBgra
+          ? _bgraToImage(step, 0, 0, width, height)
+          : _yuv420ToImage(step, 0, 0, width, height);
       if (rgb == null) return null;
-
-      final deviceDeg = switch (deviceOrientation) {
-        DeviceOrientation.portraitUp => 0,
-        DeviceOrientation.landscapeLeft => 90,
-        DeviceOrientation.portraitDown => 180,
-        DeviceOrientation.landscapeRight => 270,
-      };
-      final rotation = isFront
-          ? (sensorOrientation + deviceDeg) % 360
-          : (sensorOrientation - deviceDeg + 360) % 360;
-
-      if (rotation == 90) return img.copyRotate(rgb, angle: 90);
-      if (rotation == 270) return img.copyRotate(rgb, angle: 270);
-      if (rotation == 180) return img.copyRotate(rgb, angle: 180);
-      return rgb;
+      return _rotate(rgb, rotation);
     } catch (e) {
       debugPrint('Sign camera->rgb failed: $e');
       return null;
     }
   }
 
-  img.Image _bgraToImage(int step) {
-    final w = width ~/ step;
-    final h = height ~/ step;
+  /// Upright crop of [box] (normalized left, top, right, bottom in the
+  /// upright frame, as produced by the model) at sensor resolution, capped
+  /// at [maxSide]. Null if the crop is under [minSignCropSide].
+  img.Image? cropRgb({
+    required List<double> box,
+    required int rotation,
+    required int maxSide,
+  }) {
+    try {
+      // Map the upright box back to sensor coordinates (inverse of
+      // img.copyRotate for 90 / 180 / 270).
+      final (l, t, r, b) = (box[0], box[1], box[2], box[3]);
+      final (sl, st, sr, sb) = switch (rotation) {
+        90 => (t, 1 - r, b, 1 - l),
+        180 => (1 - r, 1 - b, 1 - l, 1 - t),
+        270 => (1 - b, l, 1 - t, r),
+        _ => (l, t, r, b),
+      };
+      final x0 = (sl * width).floor().clamp(0, width - 1);
+      final y0 = (st * height).floor().clamp(0, height - 1);
+      final cw = ((sr * width).ceil() - x0).clamp(0, width - x0);
+      final ch = ((sb * height).ceil() - y0).clamp(0, height - y0);
+      final shortSide = cw < ch ? cw : ch;
+      if (shortSide < minSignCropSide) return null;
+
+      final longSide = cw > ch ? cw : ch;
+      final step = (longSide ~/ maxSide).clamp(1, shortSide ~/ minSignCropSide);
+      final rgb = isBgra
+          ? _bgraToImage(step, x0, y0, cw, ch)
+          : _yuv420ToImage(step, x0, y0, cw, ch);
+      if (rgb == null) return null;
+      return _rotate(rgb, rotation);
+    } catch (e) {
+      debugPrint('Sign crop failed: $e');
+      return null;
+    }
+  }
+
+  static img.Image _rotate(img.Image rgb, int rotation) {
+    if (rotation == 90) return img.copyRotate(rgb, angle: 90);
+    if (rotation == 270) return img.copyRotate(rgb, angle: 270);
+    if (rotation == 180) return img.copyRotate(rgb, angle: 180);
+    return rgb;
+  }
+
+  /// Converts the region at ([x0], [y0]) of size [cw] x [ch], taking every
+  /// [step]-th pixel.
+  img.Image _bgraToImage(int step, int x0, int y0, int cw, int ch) {
+    final w = cw ~/ step;
+    final h = ch ~/ step;
     final out = img.Image(width: w, height: h);
     for (var y = 0; y < h; y++) {
-      final row = (y * step) * rowStride0;
+      final row = (y0 + y * step) * rowStride0;
       for (var x = 0; x < w; x++) {
-        final i = row + (x * step) * 4;
+        final i = row + (x0 + x * step) * 4;
         if (i + 2 >= plane0.length) continue;
         out.setPixelRgb(x, y, plane0[i + 2], plane0[i + 1], plane0[i]);
       }
@@ -274,19 +377,19 @@ class _SignFrame {
     return out;
   }
 
-  img.Image? _yuv420ToImage(int step) {
+  img.Image? _yuv420ToImage(int step, int x0, int y0, int cw, int ch) {
     final u = plane1;
     final v = plane2;
     if (u == null || v == null) return null;
-    final w = width ~/ step;
-    final h = height ~/ step;
+    final w = cw ~/ step;
+    final h = ch ~/ step;
     final out = img.Image(width: w, height: h);
     for (var y = 0; y < h; y++) {
-      final srcY = y * step;
+      final srcY = y0 + y * step;
       final yRow = srcY * rowStride0;
       final uvRow = (srcY >> 1) * uvRowStride;
       for (var x = 0; x < w; x++) {
-        final srcX = x * step;
+        final srcX = x0 + x * step;
         final yi = yRow + srcX;
         if (yi >= plane0.length) continue;
         final yp = plane0[yi];

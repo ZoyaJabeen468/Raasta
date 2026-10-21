@@ -21,7 +21,9 @@ enum TrafficSign {
   mph20(
     classLabel: '20_mph',
     // UK 20 mph is class 0. Empty scenes and Pakistani 60 km/h discs
-    // both collapse here, so we never speak it or change the HUD.
+    // both collapse here, so the label alone is never spoken or used as a
+    // limit. It is only a round speed-limit candidate sent to OCR
+    // (see [isSpeedLimitCandidate]).
     action: SignAction.ignore,
     title: 'Speed limit 20',
     english: 'Speed limit 20 ahead',
@@ -237,7 +239,6 @@ enum TrafficSign {
     required this.color,
     this.english = '',
     this.urdu = '',
-    this.speedLimit,
   });
 
   /// Raw class name from the training dataset.
@@ -254,8 +255,12 @@ enum TrafficSign {
   final IconData icon;
   final Color color;
 
-  /// km/h printed on a speed-limit class. Null until a km/h class exists.
-  final int? speedLimit;
+  /// Round speed-limit disc whose number must be read by OCR. Silent on its
+  /// own; only an OCR-read number may change the HUD limit.
+  bool get isSpeedLimitCandidate => this == mph20;
+
+  /// Sent to OCR once confirmed: every surfaced sign plus the candidate.
+  bool get wantsOcr => action != SignAction.ignore || isSpeedLimitCandidate;
 
   static const numClasses = 24;
 

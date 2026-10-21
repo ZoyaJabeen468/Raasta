@@ -326,6 +326,17 @@ class TtsService {
     }
   }
 
+  /// Speaks a speed limit read from a sign by OCR. Same priority rules as
+  /// [announceSign]: never talks over a hazard.
+  Future<bool> announceSpeedLimit(
+    LanguagePreference language, {
+    required int limitKph,
+  }) => announceSign(
+    language,
+    english: 'Speed limit $limitKph',
+    urdu: 'رفتار کی حد $limitKph ہے',
+  );
+
   String _placeEn(HazardRange? range, int? etaSeconds) {
     final band = range?.english ?? 'ahead';
     if (etaSeconds == null) return band;

@@ -15,6 +15,7 @@ abstract final class AppRoutes {
   static const changeEmail = '/settings/email';
   static const changePassword = '/settings/password';
   static const deleteAccount = '/settings/delete-account';
+  static const signTest = '/settings/sign-test';
   static const about = '/about';
   static const faq = '/faq';
   static const privacy = '/privacy';
